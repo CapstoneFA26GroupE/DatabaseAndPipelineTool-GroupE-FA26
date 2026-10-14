@@ -12,7 +12,8 @@ from cvat_annotation_functions.cvat_detection_loader import (
     load_builtin_cvat_detection_plugins,
 )
 from cvat_annotation_functions.cvat_detection_registry import build_cvat_detection_from_key
-from db.enums import ArtifactKind, JobSegmentRunStatus, JobStatus
+from db.enums import ArtifactKind, JobSegmentRunStatus, JobStatus, JobType
+from depth_config import DepthConfig
 from db.models.job_definition import JobDefinition
 from db.models.job_run import JobRun
 from db.models.job_segment_run import JobSegmentRun
@@ -159,16 +160,25 @@ async def process_job_segment_run(
             segment=segment, dest_path=segment_dir, camera=job_segment_run.camera
         )
 
-        cvat_function = build_cvat_detection_from_key(
-            key=job_definition.implementation_key,
-            config=job_definition.config,
-        )
-
-        segment_detection_file_path = cvat_service.get_detections_for_segment(
-            segment_dir=segment_dir,
-            cvat_function=cvat_function,
-            output_dir=Path(segment_dir)
-        )
+        kind = ArtifactKind.JSON
+        if job_definition.type == JobType.DEPTH:
+            from depth_estimation import create_depth_archive
+            if job_definition.implementation_key != "depth_anything_3":
+                raise ValueError("Unsupported depth implementation; use depth_anything_3.")
+            segment_detection_file_path = create_depth_archive(
+                segment_dir, segment_dir / "depth-labels.zip",
+                DepthConfig.model_validate(job_definition.config),
+                camera=job_segment_run.camera.value, route_id=job_segment_run.route_id,
+                segment_id=job_segment_run.segment_id,
+            )
+            kind = ArtifactKind.ZIP
+        else:
+            cvat_function = build_cvat_detection_from_key(
+                key=job_definition.implementation_key, config=job_definition.config,
+            )
+            segment_detection_file_path = cvat_service.get_detections_for_segment(
+                segment_dir=segment_dir, cvat_function=cvat_function, output_dir=segment_dir,
+            )
         object_write_result = minio_service.put_job_segment_run_data(
             job_segment_run=job_segment_run,
             file_path=segment_detection_file_path
@@ -177,7 +187,7 @@ async def process_job_segment_run(
         artifact = await artifact_service.create_artifact(
             bucket=minio_service.bucket_name,
             object_key=object_write_result.object_name,
-            kind=ArtifactKind.JSON
+            kind=kind
         )
 
 
@@ -195,7 +205,7 @@ async def process_job_segment_run(
         await session.commit()
 
     except Exception as e:
-        logging.error(f"Failed to process job segment run {job_segment_run}", e)
+        logging.exception("Failed to process job segment run %s", job_segment_run)
         await job_segment_run_service.set_status(
             job_run_num=job_segment_run.job_run_num,
             job_def_id=job_segment_run.job_def_id,
@@ -205,6 +215,8 @@ async def process_job_segment_run(
             status=JobSegmentRunStatus.FAILED,
         )
         await session.commit()
+        if job_definition.type == JobType.DEPTH:
+            raise RuntimeError(f"Depth segment {job_segment_run.segment_id} failed: {e}") from e
     finally:
         if segment_dir.exists():
             logging.info(f"Removing Dir: {segment_dir}")
@@ -224,10 +236,15 @@ async def _process_job_run(
     session: AsyncSession,
 ):
     logging.info(f"Processing job {job_run}")
+    job_segment_runs = []
     try:
         job_definition = await job_definition_service.get_job_definition(job_def_id=job_run.job_def_id)
         if job_definition is None:
             raise ValueError(f"Could not find job definition {job_run.job_def_id}")
+        if job_definition.type == JobType.DEPTH:
+            if job_definition.implementation_key != "depth_anything_3":
+                raise ValueError("Unsupported depth implementation; use depth_anything_3.")
+            DepthConfig.model_validate(job_definition.config).calibration_for(job_run.camera.value)
 
         # Create job_segment_runs for each segment
         # for each segment in segments, process segment
@@ -251,6 +268,15 @@ async def _process_job_run(
                 session=session,
             )
 
+        incomplete = [s.segment_id for s in job_segment_runs if s.status != JobSegmentRunStatus.SUCCEEDED or s.artifact_id is None]
+        if incomplete:
+            await job_run_service.set_error(
+                job_run_num=job_run.job_run_num, job_def_id=job_run.job_def_id,
+                route_id=job_run.route_id, camera=job_run.camera,
+                error=f"Annotation incomplete for segments {incomplete}. Export is unavailable until these segments are successfully processed. Completed annotations were preserved.",
+            )
+            await session.commit()
+            return
         logging.info(f"Processing job suceeded: {job_run}")
         await job_run_service.set_status(
             job_run_num=job_run.job_run_num,
@@ -262,13 +288,20 @@ async def _process_job_run(
         await session.commit()
 
     except Exception as e:
-        logging.error(f"Job Processing Failed: {job_run}", e)
-        await job_run_service.set_status(
+        logging.exception("Job processing failed: %s", job_run)
+        for segment_run in job_segment_runs:
+            if segment_run.status in (JobSegmentRunStatus.QUEUED, JobSegmentRunStatus.RUNNING):
+                await job_segment_run_service.set_status(
+                    job_run_num=segment_run.job_run_num, job_def_id=segment_run.job_def_id,
+                    route_id=segment_run.route_id, camera=segment_run.camera,
+                    segment_id=segment_run.segment_id, status=JobSegmentRunStatus.FAILED,
+                )
+        await job_run_service.set_error(
             job_run_num=job_run.job_run_num,
             job_def_id=job_run.job_def_id,
             route_id=job_run.route_id,
             camera=job_run.camera,
-            status=JobStatus.FAILED,
+            error=str(e),
         )
         await session.commit()
 

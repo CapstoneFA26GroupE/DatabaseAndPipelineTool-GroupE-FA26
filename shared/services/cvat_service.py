@@ -106,6 +106,8 @@ class CVATService:
             spec=task_spec, # type: ignore
             resource_type=ResourceType.LOCAL,
             resources=images,
+            # Avoid large image chunks in Redis; prepare small chunks on disk.
+            data_params={'use_cache': False, 'chunk_size': 16},
         )
 
         logger.info(f"Tak created with id {task.id}")

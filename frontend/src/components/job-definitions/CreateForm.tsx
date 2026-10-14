@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { createJobDefinition } from "../../api/job_definitions";
-import type { JobDefinition, JobDefinitionCreate } from "../../api/types";
+import type { JobDefinition, JobDefinitionCreate, JobType } from "../../api/types";
 import { ConfigEditor } from "./ConfigEditor";
 
 // ─── CreateForm ───────────────────────────────────────────────────────────────
 
 export function CreateForm({ onCreated }: { onCreated: (def: JobDefinition) => void }) {
   const [name, setName] = useState("");
+  const [jobType, setJobType] = useState<JobType>("object_detection");
   const [implKey, setImplKey] = useState("");
   const [description, setDescription] = useState("");
   const [config, setConfig] = useState<Record<string, string>>({});
@@ -30,7 +31,7 @@ export function CreateForm({ onCreated }: { onCreated: (def: JobDefinition) => v
     }
 
     const payload: JobDefinitionCreate = {
-      type: "object_detection",
+      type: jobType,
       implementation_key: implKey,
       name: name.trim(),
       config: parsedConfig,
@@ -72,6 +73,31 @@ export function CreateForm({ onCreated }: { onCreated: (def: JobDefinition) => v
       </div>
 
       <div className="jd-create-card__body">
+        <div>
+          <label className="jd-label">Job type</label>
+          <select className="jd-input" value={jobType} onChange={(e) => {
+            const selected = e.target.value as JobType;
+            setJobType(selected);
+            if (selected === "depth") {
+              setName("Monocular Depth (DA3)");
+              setImplKey("depth_anything_3");
+              setDescription("Pixel depth aligned to original images. Add camera calibration for meters.");
+              setConfig({ device: '"auto"', process_res: "504", calibrations: "{}", require_metric: "false" });
+            } else {
+              setName(""); setImplKey(""); setDescription(""); setConfig({});
+            }
+          }}>
+            <option value="object_detection">Object Detection</option>
+            <option value="depth">Pixel Depth (Depth Anything 3)</option>
+          </select>
+        </div>
+        {jobType === "depth" && <div className="jd-info-panel">
+          Export saves one NPZ depth map per image and a data.json index. Distances in meters require
+          calibration for the selected camera: width, height, fx and fy in pixels at the original image resolution.
+          Enter these under calibrations, for example {`{"front_regular":{"width":YOUR_WIDTH,"height":YOUR_HEIGHT,"fx":YOUR_FX,"fy":YOUR_FY}}`}.
+          Without calibration, values are focal-normalized and cannot be read as meters.
+          Set require_metric to true to reject jobs without calibration. CPU processing can take a long time.
+        </div>}
         {showInfo && (
           <div className="jd-info-panel">
             Implementation Key is the name of the Python class that runs the job, and Config holds the parameters passed to that class (e.g. detection transformers need a model name).

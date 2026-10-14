@@ -87,7 +87,9 @@ export function CvatJobRunsList({ routeId, segmentId }: { routeId: string; segme
                 key={key}
                 run={run}
                 imp={imp}
-                action={resolveAction(run, imp, false)}
+                action={jobDefs.find((d) => d.id === run.jobDefId)?.type === "depth"
+                  ? { state: "unavailable", label: "Depth: use route export" }
+                  : resolveAction(run, imp, false)}
                 defName={defName}
                 isLoading={key === pendingKey}
                 isUnloading={key === unloadingKey}

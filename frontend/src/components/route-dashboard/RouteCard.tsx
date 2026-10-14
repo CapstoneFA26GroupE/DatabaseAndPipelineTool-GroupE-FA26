@@ -110,6 +110,11 @@ export function RouteCard({
 
         <div style={{ height: "1px", backgroundColor: "var(--border-subtle)" }} />
         <UploadBar segments={segments} jobRuns={jobRuns} />
+        {(route.downloadError || route.status === "failed") && (
+          <p role="alert" style={{ color: "var(--accent-alert)", fontSize: "var(--text-xs)", margin: 0, lineHeight: 1.5 }}>
+            {route.downloadError || "This route failed before detailed errors were recorded. Check the worker logs or retry it. To retry, delete the failed route and import it again."}
+          </p>
+        )}
       </div>
     </div>
   );

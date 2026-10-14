@@ -19,6 +19,7 @@ from services.open_pilot_route_service import OpenPilotRouteService
 from services.route_service import RouteService, RouteStatus
 from services.segment_service import SegmentService
 from utilities.timing_utilities import convert_milliseconds_to_timestamp
+from utilities.download_errors import describe_download_failure
 
 
 POLL_INTERVAL_SECONDS = 2.0
@@ -79,7 +80,7 @@ async def _start_extraction_process(output_dir: Path) -> asyncio.subprocess.Proc
 async def _start_replay_process(route_id: str) -> asyncio.subprocess.Process:
     replay_command = f"./tools/replay/replay {shlex.quote(route_id)} --all --ecam"
     command = _build_openpilot_bash(
-        f"script -q -f -c {shlex.quote(replay_command)} /dev/null"
+        f"script -q -e -f -c {shlex.quote(replay_command)} /dev/null"
     )
     return await asyncio.create_subprocess_exec(
         "bash",
@@ -113,20 +114,22 @@ async def _stream_process_output(
 
         while "\n" in buffer:
             line, buffer = buffer.split("\n", 1)
+            if process_name == 'replay' and len(line) > 500:
+                continue  # Replay's interactive terminal redraws are not useful log lines.
             if log:
                 logger.info("[%s] route=%s %s", process_name, route_id, line.rstrip("\r"))
 
         if len(buffer) > max_partial_line:
-            if log:
+            if log and process_name != 'replay':
                 logger.info(
                     "[%s] route=%s %s ... [long line truncated]",
                     process_name,
                     route_id,
                     buffer[:1024].rstrip("\r"),
                 )
-                buffer = ""
+            buffer = ""
 
-    if buffer:
+    if buffer and not (process_name == 'replay' and len(buffer) > 500):
         if log:
             logger.info("[%s] route=%s %s", process_name, route_id, buffer.rstrip("\r"))
 
@@ -156,7 +159,9 @@ async def _mark_stale_downloading_routes_as_failed(route_service: RouteService) 
 
     for route in stale_routes:
         await route_service.set_status(route.route_id, RouteStatus.FAILED)
-        shutil.rmtree(DATA_ROOT / str(route.file_path))
+        await route_service.set_download_error(route.route_id, {'code': 'interrupted', 'message': 'The download worker stopped before this route finished. Restart the services and retry the route.'})
+        if route.file_path:
+            shutil.rmtree(DATA_ROOT / str(route.file_path), ignore_errors=True)
         logger.warning("Marked stale route as failed on startup: route=%s", route.route_id)
 
 
@@ -192,7 +197,7 @@ async def _extract_single_segment(segment_path: str, output_dir: Path) -> None:
             replay_process.pid,
         )
         replay_stream_task = asyncio.create_task(
-            _stream_process_output(replay_process, "replay", segment_path, log=False)
+            _stream_process_output(replay_process, "replay", segment_path)
         )
 
         extraction_wait_task = asyncio.create_task(extraction_process.wait())
@@ -252,6 +257,7 @@ async def _extract_single_segment(segment_path: str, output_dir: Path) -> None:
 
 async def create_segments_for_route(route: Route, segment_service: SegmentService) -> list[Segment]:
     open_pilot_route_service = OpenPilotRouteService()
+    await open_pilot_route_service.require_downloadable_files(route.route_id)
     route_metadata = await open_pilot_route_service.get_route_metadata(route_name=route.route_id)
 
     if not route_metadata:
@@ -275,6 +281,7 @@ async def create_segments_for_route(route: Route, segment_service: SegmentServic
 
 async def process_route(route_to_process: Route, route_service: RouteService, segment_service: SegmentService, session: AsyncSession):
     logging.info(f"Processing route {route_to_process.route_id}")
+    await route_service.set_download_error(route_to_process.route_id, None)
     await route_service.set_status(
         route_id=route_to_process.route_id,
         status=RouteStatus.DOWNLOADING
@@ -283,6 +290,7 @@ async def process_route(route_to_process: Route, route_service: RouteService, se
 
     unique_path = str(uuid4())
     data_dir = DATA_ROOT / unique_path
+    failed_segments = 0
     try:
         segments_to_download: list[Segment] = await create_segments_for_route(
             route_to_process,
@@ -318,9 +326,13 @@ async def process_route(route_to_process: Route, route_service: RouteService, se
                 )
                 await session.commit()
                 logging.info(f"Successfully uploaded segment {segment}")
-            except Exception:
-                logging.error(f"Failed to download segment {segment}... skipping")
-                shutil.rmtree(data_dir / str(segment.segment_id))
+            except Exception as error:
+                failed_segments += 1
+                details = describe_download_failure(error)
+                details['message'] = f"Segment {segment.segment_id}: " + details['message']
+                await route_service.set_download_error(route_to_process.route_id, details)
+                logging.exception("Failed to download segment %s; continuing with the next segment", segment)
+                shutil.rmtree(data_dir / str(segment.segment_id), ignore_errors=True)
                 await segment_service.set_status(
                     route_id=segment.route_id,
                     segment_id=segment.segment_id,
@@ -329,18 +341,20 @@ async def process_route(route_to_process: Route, route_service: RouteService, se
                 await session.commit()
 
     except Exception as e:
+        await route_service.set_download_error(route_to_process.route_id, describe_download_failure(e))
         await route_service.set_status(
             route_id=route_to_process.route_id,
             status=RouteStatus.FAILED
         )
         await session.commit()
-        logging.error(f"Could not process route {route_to_process}", e)
-        shutil.rmtree(data_dir)
+        logging.exception("Could not process route %s", route_to_process.route_id)
+        shutil.rmtree(data_dir, ignore_errors=True)
+        return
 
     logging.info(f"Rout processed {route_to_process.route_id}")
     await route_service.set_status(
         route_id=route_to_process.route_id,
-        status=RouteStatus.UPLOAD_QUEUE
+        status=RouteStatus.FAILED if failed_segments else RouteStatus.UPLOAD_QUEUE
     )
     await session.commit()
     

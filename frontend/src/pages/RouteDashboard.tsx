@@ -144,6 +144,7 @@ export default function RouteDashboard() {
             queryClient.invalidateQueries({ queryKey: ["routes"] });
           } catch (err) {
             console.error("Failed to import route:", err);
+            throw err;
           }
         }}
       />
