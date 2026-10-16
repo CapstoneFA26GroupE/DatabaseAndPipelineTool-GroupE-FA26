@@ -323,6 +323,7 @@ async def _process_job_run(
 
 
 async def main():
+    logger.info("Starting cvat_worker")
     load_builtin_cvat_detection_plugins()
 
     # create session to access database
@@ -365,6 +366,7 @@ async def main():
                 job_run_service, job_segment_run_service
             )
             await session.commit()
+            logger.info("Ready: polling every %ss for queued job runs", POLL_INTERVAL_SECONDS)
 
             while not stop_event.is_set():
                 job_run = await job_run_service.claim_next_queued_job()
