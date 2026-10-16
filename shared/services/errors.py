@@ -535,3 +535,14 @@ class RouteHasNoSegmentsError(ConflictError):
 
     def __init__(self, route_id: str) -> None:
         super().__init__(f"Route {route_id} has no segments to process", context={"route_id": route_id})
+
+
+# ─── Audit log ───────────────────────────────────────────────────────────────
+
+class InvalidAuditFilterError(PipelineError):
+    code = "INVALID_AUDIT_FILTER"
+    status_code = HTTP_400_BAD_REQUEST
+    hint = "outcome must be one of: success, warning, failure."
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)

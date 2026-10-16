@@ -21,6 +21,11 @@ _KNOWN_HINTS: list[tuple[type[BaseException], str]] = [
 ]
 
 
+def error_code_of(exc: BaseException) -> str | None:
+    """The stable error code for audit logs, e.g. "COMMA_AUTH_FAILED", or None for unexpected errors."""
+    return exc.code if isinstance(exc, PipelineError) else None
+
+
 def describe_exception(exc: BaseException, max_length: int = MAX_ERROR_LENGTH) -> str:
     """Return a short, human-readable description of an exception, including a fix hint when known.
 

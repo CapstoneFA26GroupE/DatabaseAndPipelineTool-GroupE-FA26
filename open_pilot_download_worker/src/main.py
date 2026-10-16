@@ -18,7 +18,14 @@ from services.open_pilot_route_service import OpenPilotRouteService
 from services.route_service import RouteService, RouteStatus
 from services.segment_service import SegmentService
 from utilities.timing_utilities import convert_milliseconds_to_timestamp
-from utilities.error_utilities import describe_exception, record_failure, summarize_segment_failures
+from services.audit_service import (
+    OUTCOME_FAILURE,
+    OUTCOME_SUCCESS,
+    OUTCOME_WARNING,
+    configure_audit,
+    record_audit,
+)
+from utilities.error_utilities import describe_exception, error_code_of, record_failure, summarize_segment_failures
 from utilities.logging_utilities import configure_logging
 from services.errors import CommaRouteNotFoundError, RouteHasNoSegmentsError
 
@@ -166,6 +173,14 @@ async def _mark_stale_downloading_routes_as_failed(route_service: RouteService) 
         if route.file_path:
             shutil.rmtree(DATA_ROOT / route.file_path, ignore_errors=True)
         logger.warning("Marked stale route as failed on startup: route=%s", route.route_id)
+        await record_audit(
+            "route.download.interrupted",
+            OUTCOME_FAILURE,
+            entity_type="route",
+            entity_id=route.route_id,
+            route_id=route.route_id,
+            message="The open_pilot_download_worker restarted while this route was downloading.",
+        )
 
 
 async def _extract_single_segment(segment_path: str, output_dir: Path) -> None:
@@ -332,6 +347,15 @@ async def process_route(route_to_process: Route, route_service: RouteService, se
                 error = describe_exception(e)
                 failures[segment_id] = error
                 logger.exception("Failed to download segment %s/%s... skipping", route_id, segment_id)
+                await record_audit(
+                    "segment.download.finished",
+                    OUTCOME_FAILURE,
+                    entity_type="segment",
+                    entity_id=f"{route_id}/seg {segment_id}",
+                    route_id=route_id,
+                    message=error,
+                    error_code=error_code_of(e),
+                )
                 shutil.rmtree(data_dir / str(segment_id), ignore_errors=True)
                 await record_failure(
                     session,
@@ -351,6 +375,12 @@ async def process_route(route_to_process: Route, route_service: RouteService, se
             error = summarize_segment_failures(failures, len(segment_ids), action="failed to download")
             logger.error("Every segment of route %s failed to download", route_id)
             await route_service.set_status(route_id=route_id, status=RouteStatus.FAILED, error=error)
+            await session.commit()
+            await record_audit(
+                "route.download.finished", OUTCOME_FAILURE,
+                entity_type="route", entity_id=route_id, route_id=route_id, message=error,
+                details={"segments_total": len(segment_ids), "segments_failed": len(failures)},
+            )
         else:
             if failures:
                 # Some segments failed: keep going with the rest, but record a warning on the route
@@ -359,7 +389,13 @@ async def process_route(route_to_process: Route, route_service: RouteService, se
             else:
                 await route_service.set_status(route_id=route_id, status=RouteStatus.UPLOAD_QUEUE)
             logger.info("Route %s downloaded (%d failed segment(s))", route_id, len(failures))
-        await session.commit()
+            await session.commit()
+            await record_audit(
+                "route.download.finished", OUTCOME_WARNING if failures else OUTCOME_SUCCESS,
+                entity_type="route", entity_id=route_id, route_id=route_id,
+                message=warning if failures else None,
+                details={"segments_total": len(segment_ids), "segments_failed": len(failures)},
+            )
 
     except Exception as e:
         # Before this fix, the route was marked FAILED here and then immediately overwritten
@@ -373,11 +409,17 @@ async def process_route(route_to_process: Route, route_service: RouteService, se
             f"route {route_id}",
             lambda: route_service.set_status(route_id=route_id, status=RouteStatus.FAILED, error=error),
         )
+        await record_audit(
+            "route.download.finished", OUTCOME_FAILURE,
+            entity_type="route", entity_id=route_id, route_id=route_id,
+            message=error, error_code=error_code_of(e),
+        )
 
 
 async def main():
     engine = create_async_engine(build_database_url(), pool_pre_ping=True)
     SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
+    configure_audit(SessionLocal, source="open_pilot_download_worker")
     stop_event = asyncio.Event()
 
     loop = asyncio.get_running_loop()

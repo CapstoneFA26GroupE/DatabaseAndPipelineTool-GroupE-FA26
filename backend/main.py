@@ -20,6 +20,14 @@ from api.request_context import (
     set_request_id,
 )
 from services.errors import PipelineError
+from services.audit_service import AuditService
+from api.audit import (
+    AUDITED_METHODS,
+    NOT_AUDITED_PATH_PREFIXES,
+    buffer_response,
+    read_request_ids,
+    record_api_action,
+)
 
 from api.routers.dataset_exports import dataset_exports_router
 from api.routers.routes import routes_router
@@ -28,6 +36,7 @@ from api.routers.job_runs import job_runs_router
 from api.routers.job_definitions import job_definitions_router
 from api.routers.job_segment_run import job_segment_run_router
 from api.routers.cvat import cvat_router
+from api.routers.audit_logs import audit_logs_router
 
 configure_api_logging()
 logger = logging.getLogger("api")
@@ -44,6 +53,8 @@ async def lifespan(app: FastAPI):
 
     app.state.engine = engine
     app.state.session_local = session_local 
+    # Audit entries are written in their own session so they survive a rolled-back request
+    app.state.audit_service = AuditService(session_local, source="api")
 
     try:
         yield
@@ -81,6 +92,8 @@ async def request_context_middleware(request: Request, call_next):
     """
     request_id = new_request_id(request.headers.get(REQUEST_ID_HEADER))
     token = set_request_id(request_id)
+    audited = request.method in AUDITED_METHODS and not request.url.path.startswith(NOT_AUDITED_PATH_PREFIXES)
+    request_ids = await read_request_ids(request) if audited else {}
     try:
         try:
             response = await call_next(request)
@@ -96,6 +109,15 @@ async def request_context_middleware(request: Request, call_next):
                 },
             )
         response.headers[REQUEST_ID_HEADER] = request_id
+
+        # Record every change request (successful or not) in the audit log
+        audit_service: AuditService | None = getattr(request.app.state, "audit_service", None)
+        if audited and audit_service is not None:
+            try:
+                response, body = await buffer_response(response)
+                await record_api_action(audit_service, request, request_ids, response.status_code, body, request_id)
+            except Exception:
+                logger.exception("Audit logging failed for %s %s", request.method, request.url.path)
         return response
     finally:
         reset_request_id(token)
@@ -157,3 +179,4 @@ app.include_router(router=job_definitions_router)
 app.include_router(router=job_segment_run_router)
 app.include_router(router=dataset_exports_router)
 app.include_router(router=cvat_router)
+app.include_router(router=audit_logs_router)

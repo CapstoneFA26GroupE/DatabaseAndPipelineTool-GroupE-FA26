@@ -29,7 +29,14 @@ from services.minio_service import MinioService
 from services.segment_artifact_download_service import SegmentArtifactDownloadService
 from services.segment_service import SegmentService
 from utilities.cvat_utilities import get_task_url
-from utilities.error_utilities import describe_exception, record_failure
+from services.audit_service import (
+    OUTCOME_FAILURE,
+    OUTCOME_SUCCESS,
+    configure_audit,
+    entity_id_for,
+    record_audit,
+)
+from utilities.error_utilities import describe_exception, error_code_of, record_failure
 from utilities.logging_utilities import configure_logging
 
 
@@ -55,6 +62,19 @@ def _import_ids(job_segment_run_import: JobSegmentRunImport) -> dict:
     )
 
 
+async def _audit_import(action: str, outcome: str, ids: dict, message: str | None = None, error_code: str | None = None, details: dict | None = None) -> None:
+    await record_audit(
+        action,
+        outcome,
+        entity_type="cvat_import",
+        entity_id=entity_id_for("cvat_import", ids),
+        route_id=ids["route_id"],
+        message=message,
+        error_code=error_code,
+        details={**{k: str(v) for k, v in ids.items()}, **(details or {})},
+    )
+
+
 def _import_label(ids: dict) -> str:
     return (
         f"cvat_import(route={ids['route_id']} segment={ids['segment_id']} "
@@ -73,6 +93,10 @@ async def _mark_stale_running_jobs_as_failed(job_segment_run_import_service: Job
             await job_segment_run_import_service.set_error(
                 job_segment_run_import=job,
                 error_message=STALE_IMPORT_ERROR.format(action=action),
+            )
+            await _audit_import(
+                "cvat.import.interrupted", OUTCOME_FAILURE, _import_ids(job),
+                message=STALE_IMPORT_ERROR.format(action=action),
             )
 
     logger.info("Completed marking stale running jobs as failed.")
@@ -141,6 +165,7 @@ async def _process_loading_job(
         )
         await session.commit()
         logger.info("Loaded into CVAT: %s (task %s)", label, task_id)
+        await _audit_import("cvat.load_segment.finished", OUTCOME_SUCCESS, ids, details={"task_id": task_id})
     except Exception as e:
         error = f"Failed while loading into CVAT: {describe_exception(e)}"
         logger.exception("Loading into CVAT failed: %s", label)
@@ -150,6 +175,7 @@ async def _process_loading_job(
             label,
             lambda: job_segment_run_import_service.mark_failed(**ids, error_message=error),
         )
+        await _audit_import("cvat.load_segment.finished", OUTCOME_FAILURE, ids, message=error, error_code=error_code_of(e))
     finally:
         # The folder may not exist if the failure happened before the download
         shutil.rmtree(dest_path, ignore_errors=True)
@@ -186,6 +212,7 @@ async def _process_removal_job(
         )
         await session.commit()
         logger.info("Removed from CVAT: %s", label)
+        await _audit_import("cvat.remove_segment.finished", OUTCOME_SUCCESS, ids)
     except Exception as e:
         error = f"Failed while removing from CVAT: {describe_exception(e)}"
         logger.exception("Removing from CVAT failed: %s", label)
@@ -195,6 +222,7 @@ async def _process_removal_job(
             label,
             lambda: job_segment_run_import_service.mark_failed(**ids, error_message=error),
         )
+        await _audit_import("cvat.remove_segment.finished", OUTCOME_FAILURE, ids, message=error, error_code=error_code_of(e))
 
 async def _process_job(
     job_segment_run_import:JobSegmentRunImport,
@@ -232,6 +260,7 @@ async def main():
         pool_pre_ping=True
     )
     SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
+    configure_audit(SessionLocal, source="cvat_import_export_worker")
 
     stop_event = asyncio.Event()
     executor = ThreadPoolExecutor(max_workers=1)

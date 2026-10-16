@@ -19,7 +19,8 @@ from services.job_segment_run_service import JobSegmentRunService
 from services.minio_service import MinioService
 from services.segment_artifact_service import SegmentArtifactService
 from services.segment_service import SegmentService
-from utilities.error_utilities import describe_exception, record_failure
+from services.audit_service import OUTCOME_FAILURE, OUTCOME_SUCCESS, configure_audit, record_audit
+from utilities.error_utilities import describe_exception, error_code_of, record_failure
 from utilities.logging_utilities import configure_logging
 from utilities.service_builder_utilities import (
     build_artifact_service,
@@ -54,6 +55,13 @@ async def _mark_stale_running_exports_as_failed(
         logger.warning(
             "Marking stale dataset export as failed export_id=%s",
             dataset_export.export_id,
+        )
+        await record_audit(
+            "dataset_export.interrupted", OUTCOME_FAILURE,
+            entity_type="dataset_export",
+            entity_id=f"{dataset_export.export_id}/{dataset_export.route_id}",
+            route_id=dataset_export.route_id,
+            message="The dataset_export_worker restarted while this export was RUNNING.",
         )
         await dataset_export_service.set_error(
             export_id=dataset_export.export_id,
@@ -267,7 +275,8 @@ async def _process_dataset_export(
     minio_service: MinioService,
     session: AsyncSession,
 ) -> None:
-    export_id = dataset_export.export_id  # plain value, safe to use after a rollback
+    export_id = dataset_export.export_id  # plain values, safe to use after a rollback
+    export_route_id = dataset_export.route_id
     logger.info("Processing dataset export export_id=%s", dataset_export.export_id)
     await dataset_export_service.set_status(
         export_id=dataset_export.export_id,
@@ -345,6 +354,10 @@ async def _process_dataset_export(
                 dataset_export.export_id,
                 artifact.artifact_id,
             )
+            await record_audit(
+                "dataset_export.finished", OUTCOME_SUCCESS,
+                entity_type="dataset_export", entity_id=f"{export_id}/{export_route_id}", route_id=export_route_id,
+            )
     except Exception as exc:
         logger.exception("Dataset export failed export_id=%s", export_id)
         error = describe_exception(exc)
@@ -354,6 +367,11 @@ async def _process_dataset_export(
             f"dataset export {export_id}",
             lambda: dataset_export_service.set_error(export_id=export_id, error=error),
         )
+        await record_audit(
+            "dataset_export.finished", OUTCOME_FAILURE,
+            entity_type="dataset_export", entity_id=f"{export_id}/{export_route_id}", route_id=export_route_id,
+            message=error, error_code=error_code_of(exc),
+        )
 
 
 async def main() -> None:
@@ -361,6 +379,7 @@ async def main() -> None:
 
     engine = create_async_engine(build_database_url(), pool_pre_ping=True)
     session_local = async_sessionmaker(bind=engine, expire_on_commit=False)
+    configure_audit(session_local, source="dataset_export_worker")
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()

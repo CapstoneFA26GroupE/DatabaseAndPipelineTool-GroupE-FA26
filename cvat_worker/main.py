@@ -35,7 +35,15 @@ from services.job_run_service import JobRunService
 from services.job_segment_run_service import JobSegmentRunService
 from services.segment_artifact_download_service import SegmentArtifactDownloadService
 from services.segment_service import SegmentService
-from utilities.error_utilities import describe_exception, record_failure, summarize_segment_failures
+from services.audit_service import (
+    OUTCOME_FAILURE,
+    OUTCOME_SUCCESS,
+    OUTCOME_WARNING,
+    configure_audit,
+    entity_id_for,
+    record_audit,
+)
+from utilities.error_utilities import describe_exception, error_code_of, record_failure, summarize_segment_failures
 from utilities.logging_utilities import configure_logging
 from utilities.service_builder_utilities import (
     build_job_definition_service,
@@ -64,6 +72,26 @@ def _job_run_label(job_run_num: int, job_def_id: int, route_id: str, camera: Cam
     return f"job_run(route={route_id} job_def={job_def_id} run={job_run_num} camera={camera})"
 
 
+async def _audit_job_run(
+    action: str,
+    outcome: str,
+    ids: dict,
+    message: str | None = None,
+    error_code: str | None = None,
+    stats: dict | None = None,
+) -> None:
+    await record_audit(
+        action,
+        outcome,
+        entity_type="job_run",
+        entity_id=entity_id_for("job_run", ids),
+        route_id=ids["route_id"],
+        message=message,
+        error_code=error_code,
+        details={**{k: str(v) for k, v in ids.items()}, **(stats or {})},
+    )
+
+
 async def _mark_stale_running_jobs_as_failed(
     job_run_service: JobRunService, job_segment_run_service: JobSegmentRunService
 ):
@@ -87,6 +115,12 @@ async def _mark_stale_running_jobs_as_failed(
             route_id=job.route_id,
             camera=job.camera,
             error=STALE_JOB_RUN_ERROR,
+        )
+        await _audit_job_run(
+            "job_run.interrupted",
+            OUTCOME_FAILURE,
+            dict(job_run_num=job.job_run_num, job_def_id=job.job_def_id, route_id=job.route_id, camera=job.camera),
+            message=STALE_JOB_RUN_ERROR,
         )
 
         segments = await job_segment_run_service.get_segments_by_job_run(
@@ -302,14 +336,24 @@ async def _process_job_run(
             summary = summarize_segment_failures(failures, total)
             logger.error("All segments failed for %s", label)
             await job_run_service.set_error(**ids, error=summary)
+            await session.commit()
+            await _audit_job_run("job_run.finished", OUTCOME_FAILURE, ids, message=summary, stats=stats)
         else:
             await job_run_service.set_status(**ids, status=JobStatus.SUCCEEDED)
-            if failures:
+            warning = summarize_segment_failures(failures, total) if failures else None
+            if warning:
                 # Partial success: keep SUCCEEDED (the good segments are usable) but record a warning
                 logger.warning("%s succeeded with %d failed segment(s)", label, len(failures))
-                await job_run_service.set_warning(**ids, warning=summarize_segment_failures(failures, total))
+                await job_run_service.set_warning(**ids, warning=warning)
+            await session.commit()
             logger.info("Succeeded %s", label)
-        await session.commit()
+            await _audit_job_run(
+                "job_run.finished",
+                OUTCOME_WARNING if warning else OUTCOME_SUCCESS,
+                ids,
+                message=warning,
+                stats=stats,
+            )
 
     except Exception as e:
         error = describe_exception(e)
@@ -320,6 +364,7 @@ async def _process_job_run(
             label,
             lambda: job_run_service.set_error(**ids, error=error),
         )
+        await _audit_job_run("job_run.finished", OUTCOME_FAILURE, ids, message=error, error_code=error_code_of(e))
 
 
 async def main():
@@ -329,6 +374,7 @@ async def main():
     # create session to access database
     engine = create_async_engine(build_database_url(), pool_pre_ping=True)
     SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
+    configure_audit(SessionLocal, source="cvat_worker")
 
     stop_event = asyncio.Event()
     executor = ThreadPoolExecutor(max_workers=1)

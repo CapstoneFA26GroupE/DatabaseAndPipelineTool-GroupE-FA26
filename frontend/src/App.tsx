@@ -9,6 +9,7 @@ import RouteDashboard from "./pages/RouteDashboard";
 import RouteDetail from "./pages/RouteDetail";
 import SegmentViewer from "./pages/SegmentViewer";
 import JobDefinitions from "./pages/JobDefinitions";
+import Activity from "./pages/Activity";
 
 const queryClient = new QueryClient({
   // Show a toast for every failed mutation unless the component displays it inline
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="/routes/:routeId" element={<RouteDetail />} />
           <Route path="/routes/:routeId/segments/:segmentId" element={<SegmentViewer />} />
           <Route path="/job-definitions" element={<JobDefinitions />} />
+          <Route path="/activity" element={<Activity />} />
         </Route>
       </Routes>
       </QueryClientProvider>

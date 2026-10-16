@@ -27,7 +27,14 @@ from services.segment_artifact_service import SegmentArtifactService
 from utilities.camera_type_utilities import folder_name_to_camera_type
 from utilities.directory_utilities import does_directory_have_more_than_n_items, get_subdirectories
 from utilities.file_utilities import get_pngs_in_directory
-from utilities.error_utilities import describe_exception, record_failure, summarize_segment_failures
+from services.audit_service import (
+    OUTCOME_FAILURE,
+    OUTCOME_SUCCESS,
+    OUTCOME_WARNING,
+    configure_audit,
+    record_audit,
+)
+from utilities.error_utilities import describe_exception, error_code_of, record_failure, summarize_segment_failures
 from utilities.logging_utilities import configure_logging
 from services.errors import RouteNotFoundError
 
@@ -60,6 +67,14 @@ async def _mark_stale_uploading_segments_as_failed(route_service: RouteService, 
             shutil.rmtree(DATA_ROOT / route.file_path / str(segment.segment_id), ignore_errors=True)
 
         logger.warning("Marked stale segment as failed on startup: %s", segment)
+        await record_audit(
+            "segment.upload.interrupted",
+            OUTCOME_FAILURE,
+            entity_type="segment",
+            entity_id=f"{segment.route_id}/seg {segment.segment_id}",
+            route_id=segment.route_id,
+            message="The open_pilot_upload_worker restarted while this segment was uploading.",
+        )
 
 
 
@@ -196,6 +211,15 @@ async def _process_segment(
     except Exception as e:
         error = describe_exception(e)
         logger.exception("Failed to upload %s", label)
+        await record_audit(
+            "segment.upload.finished",
+            OUTCOME_FAILURE,
+            entity_type="segment",
+            entity_id=f"{route_id}/seg {segment_id}",
+            route_id=route_id,
+            message=error,
+            error_code=error_code_of(e),
+        )
         await record_failure(
             session,
             logger,
@@ -247,6 +271,11 @@ async def _finish_route_if_done(route_id: str, route_service: RouteService, segm
         )
         logger.error("Route %s failed: no segments were uploaded", route_id)
         await route_service.set_status(route_id=route_id, status=RouteStatus.FAILED, error=error)
+        await record_audit(
+            "route.upload.finished", OUTCOME_FAILURE,
+            entity_type="route", entity_id=route_id, route_id=route_id, message=error,
+            details={"segments_total": len(segments), "segments_failed": len(failures)},
+        )
         return
 
     warning = summarize_segment_failures(failures, len(segments)) if failures else None
@@ -257,6 +286,11 @@ async def _finish_route_if_done(route_id: str, route_service: RouteService, segm
         len(failures),
     )
     await route_service.set_status(route_id=route_id, status=RouteStatus.UPLOADED, error=warning)
+    await record_audit(
+        "route.upload.finished", OUTCOME_WARNING if warning else OUTCOME_SUCCESS,
+        entity_type="route", entity_id=route_id, route_id=route_id, message=warning,
+        details={"segments_total": len(segments), "segments_uploaded": len(uploaded), "segments_failed": len(failures)},
+    )
 
 
 async def are_all_segments_for_route_processed(route: Route, segment_service: SegmentService):
@@ -271,6 +305,7 @@ async def main():
     logger.info("Creating DB engine")
     engine = create_async_engine(build_database_url(), pool_pre_ping=True)
     SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
+    configure_audit(SessionLocal, source="open_pilot_upload_worker")
     logger.info("DB engine created")
 
     stop_event = asyncio.Event()
