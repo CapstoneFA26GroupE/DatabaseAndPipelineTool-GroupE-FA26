@@ -8,6 +8,7 @@ import { JobRunRow } from "./JobRunRow";
 import { SegmentTimeline } from "./SegmentTimeline";
 import { CreateJobRunButton } from "./CreateJobRunButton";
 import { deleteRoute } from "../../api/routes";
+import { FailureReason } from "../FailureReason";
 
 const ROUTE_STATUS_COLORS: Record<string, string> = {
   "download queue": "var(--text-secondary)",
@@ -115,6 +116,12 @@ export function RouteDetailHeader({
         <span style={{ color: "var(--border-on-inverse-subtle)" }}>·</span>
         <span>{segments.length} segments</span>
       </div>
+
+      {route.error && (
+        <div style={{ marginBottom: "var(--space-4)" }}>
+          <FailureReason text={route.error} tone={route.status === "failed" ? "alert" : "warning"} dark variant="block" />
+        </div>
+      )}
 
       <div style={{ display: "flex", flexWrap: "wrap", border: "1px solid var(--border-on-inverse-faint)", marginBottom: "var(--space-4)" }}>
         <DarkStatCell label="Segments"  value={segments.length} />

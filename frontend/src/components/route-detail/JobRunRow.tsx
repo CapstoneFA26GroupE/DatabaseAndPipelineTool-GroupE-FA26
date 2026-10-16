@@ -6,6 +6,7 @@ import { STATUS_COLOR, STATUS_LABEL } from "../../utils/jobSegmentRunConfig";
 import { ExportJobRunButton } from "./ExportJobRunButton";
 import { DeleteJobRunButton } from "./DeleteJobRunButton";
 import { RequeueJobRunButton } from "./RequeueJobRunButton";
+import { FailureReason } from "../FailureReason";
 
 export function JobRunRow({ jobRun }: { jobRun: JobRun }) {
   const color = STATUS_COLOR[jobRun.status as keyof typeof STATUS_COLOR] ?? "var(--text-secondary)";
@@ -19,7 +20,7 @@ export function JobRunRow({ jobRun }: { jobRun: JobRun }) {
   const defName = jobDefs.find((d) => d.id === jobRun.jobDefId)?.name ?? `def ${jobRun.jobDefId}`;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", padding: "calc(var(--space-2) + 1px) var(--space-3)", backgroundColor: "var(--bg-on-inverse-subtle)", border: "1px solid var(--border-on-inverse-faint)" }}>
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-3)", padding: "calc(var(--space-2) + 1px) var(--space-3)", backgroundColor: "var(--bg-on-inverse-subtle)", border: "1px solid var(--border-on-inverse-faint)" }}>
       <DeleteJobRunButton
         routeId={jobRun.routeId}
         jobDefId={jobRun.jobDefId}
@@ -40,9 +41,8 @@ export function JobRunRow({ jobRun }: { jobRun: JobRun }) {
         {isActive ? `queued ${formatRelativeTime(jobRun.queuedAt)}` : formatRelativeTime(jobRun.finishedAt)}
       </span>
       {jobRun.error && (
-        <span style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--accent-alert)", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={jobRun.error}>
-          {jobRun.error}
-        </span>
+        // A succeeded run can still carry a warning, e.g. "2 of 10 segments failed"
+        <FailureReason text={jobRun.error} tone={jobRun.status === "failed" ? "alert" : "warning"} dark maxWidth="220px" />
       )}
       {jobRun.status === "cancelled" && (
         <RequeueJobRunButton
