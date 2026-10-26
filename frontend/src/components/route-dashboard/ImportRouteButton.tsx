@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { reportError } from "../../utils/errorReporter";
 
 const ROUTE_ID_REGEX = /^[^|]+\|[^-]+--[^/]+$/;
 
@@ -6,7 +7,7 @@ export function ImportRouteButton({
   onImport,
   dark = false,
 }: {
-  onImport: (routeId: string) => void;
+  onImport: (routeId: string) => Promise<void> | void;
   dark?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -49,18 +50,23 @@ export function ImportRouteButton({
     setSubmitState("idle");
   }
 
-  function handleSubmit() {
+  async function handleSubmit() {
     setTouched(true);
     if (!isValid) return;
     setSubmitState("loading");
 
-    // Example: createRoute(trimmed).then(() => setSubmitState("success")).catch(() => setSubmitState("idle"))
-    onImport(trimmed);
+    try {
+      // Only show "Queued" once the backend has actually accepted the route
+      await onImport(trimmed);
+    } catch (err) {
+      // Keep the input open so the user can fix the ID and retry
+      setSubmitState("idle");
+      reportError(err, `Could not import route ${trimmed}`);
+      return;
+    }
 
-    setTimeout(() => {
-      setSubmitState("success");
-      setTimeout(close, 900);
-    }, 500);
+    setSubmitState("success");
+    setTimeout(close, 900);
   }
 
   return (

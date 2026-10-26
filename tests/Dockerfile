@@ -33,6 +33,9 @@ COPY open_pilot_download_worker/src /app/open_pilot_download_worker
 
 COPY tests /app
 
+# The error guide, so tests/unit/test_error_guide.py can check every error code is documented
+COPY docs /app/docs
+
 WORKDIR /app
 
 CMD ["pytest", "."]
