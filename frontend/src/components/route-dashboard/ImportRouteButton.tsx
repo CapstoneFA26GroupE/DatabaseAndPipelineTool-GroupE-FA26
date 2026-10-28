@@ -7,20 +7,21 @@ export function ImportRouteButton({
   onImport,
   dark = false,
 }: {
-  onImport: (routeId: string) => Promise<void> | void;
+  onImport: (routeId: string) => Promise<void>;
   dark?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [value, setValue] = useState("");
   const [touched, setTouched] = useState(false);
+  const [importError, setImportError] = useState("");
   const [submitState, setSubmitState] = useState<"idle" | "loading" | "success">("idle");
   const [btnHovered, setBtnHovered] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const trimmed = value.trim();
+  const trimmed = value.trim().replace("/", "|");
   const isValid = ROUTE_ID_REGEX.test(trimmed);
-  const showError = touched && trimmed.length > 0 && !isValid;
+  const showError = Boolean(importError) || (touched && trimmed.length > 0 && !isValid);
 
   // Close when clicking outside the component
   useEffect(() => {
@@ -40,6 +41,7 @@ export function ImportRouteButton({
     setTouched(false);
     setValue("");
     setSubmitState("idle");
+    setImportError("");
     setTimeout(() => inputRef.current?.focus(), 30);
   }
 
@@ -56,17 +58,13 @@ export function ImportRouteButton({
     setSubmitState("loading");
 
     try {
-      // Only show "Queued" once the backend has actually accepted the route
       await onImport(trimmed);
-    } catch (err) {
-      // Keep the input open so the user can fix the ID and retry
+      setSubmitState("success");
+      setTimeout(close, 900);
+    } catch {
       setSubmitState("idle");
-      reportError(err, `Could not import route ${trimmed}`);
-      return;
+      setImportError("Could not queue route. Check the route ID and whether it already exists.");
     }
-
-    setSubmitState("success");
-    setTimeout(close, 900);
   }
 
   return (
@@ -162,7 +160,7 @@ export function ImportRouteButton({
                 whiteSpace: "nowrap",
                 pointerEvents: "none",
               }}>
-                Expected: db478799b6f9f210|0000000e--9ecd39f6bc
+                {importError || "Expected: db478799b6f9f210|0000000e--9ecd39f6bc"}
               </div>
             )}
           </div>

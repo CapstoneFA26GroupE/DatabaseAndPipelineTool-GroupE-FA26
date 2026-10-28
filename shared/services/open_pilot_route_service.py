@@ -3,6 +3,7 @@ import time
 from typing import Any
 
 import httpx
+from utilities.download_errors import MissingRouteRecordingsError
 
 from schemas.openpilot_route_metadata import OpenPilotRouteMetadata
 from services.errors import CommaApiError, CommaAuthError, InvalidRouteIdError
@@ -54,3 +55,18 @@ class OpenPilotRouteService:
                 return route_metadata
 
         return None
+
+    async def require_downloadable_files(self, route_name: str) -> None:
+        """Metadata can outlive uploaded recordings. Check before starting replay."""
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(
+                f"https://api.commadotai.com/v1/route/{route_name}/files",
+                headers=self.auth_headers,
+            )
+            response.raise_for_status()
+            files = response.json()
+        if not files.get('logs') or not files.get('cameras') or not files.get('ecameras'):
+            raise MissingRouteRecordingsError(
+                f"Route {route_name} has no complete downloadable road/wide camera and rlog files. "
+                "Comma route metadata alone does not mean its recordings are available."
+            )

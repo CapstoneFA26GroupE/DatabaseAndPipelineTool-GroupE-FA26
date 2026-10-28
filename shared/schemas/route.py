@@ -17,5 +17,4 @@ class RouteResponse(BaseModel):
     file_path: str | None
     status: RouteStatus
     created_at: datetime
-    # Why the route failed, or a warning when some segments failed
-    error: str | None = None
+    download_error: dict[str, str] | None = None
