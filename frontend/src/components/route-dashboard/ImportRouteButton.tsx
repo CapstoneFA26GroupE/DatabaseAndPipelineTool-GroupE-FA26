@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { reportError } from "../../utils/errorReporter";
 
 const ROUTE_ID_REGEX = /^[^|]+\|[^-]+--[^/]+$/;
 

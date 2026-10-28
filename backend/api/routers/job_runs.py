@@ -13,10 +13,6 @@ from services.job_run_service import JobRunService
 from utilities.service_builder_utilities import build_delete_service, build_job_run_service
 from utilities.service_builder_utilities import build_job_definition_service
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s"
-)
 logger = logging.getLogger(__name__)
 
 job_runs_router = APIRouter(

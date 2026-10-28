@@ -38,12 +38,18 @@ class RouteService:
             status=status,
         )
 
-    async def set_status(self, route_id: str, status: RouteStatus) -> Route:
+    async def set_status(self, route_id: str, status: RouteStatus, error: str | None = None) -> Route:
+        """Set the route status. Pass ``error`` to record why it failed (or a warning).
+
+        ``error`` is only written when given, so later status changes keep an earlier message.
+        """
         route = await self._route_repository.get_by_id(route_id)
         if route is None:
             raise RouteNotFoundError(route_id)
 
         route.status = status
+        if error is not None:
+            route.error = error
         return await self._route_repository.save(route)
 
     async def set_file_path(self, route_id: str, file_path: str | None) -> Route:
