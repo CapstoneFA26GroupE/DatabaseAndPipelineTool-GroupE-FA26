@@ -11,9 +11,7 @@ from cvat_annotation_functions.cvat_detection_loader import (
     load_builtin_cvat_detection_plugins,
 )
 from cvat_annotation_functions.cvat_detection_registry import build_cvat_detection_from_key
-from db.enums import ArtifactKind, JobSegmentRunStatus, JobStatus, JobType
-from depth_config import DepthConfig
-from db.models.job_definition import JobDefinition
+from db.enums import ArtifactKind, CameraType, JobSegmentRunStatus, JobStatus
 from db.models.job_run import JobRun
 from db.models.job_segment_run import JobSegmentRun
 from db.url import build_database_url
@@ -221,25 +219,16 @@ async def process_job_segment_run(
             segment=segment, dest_path=segment_dir, camera=camera
         )
 
-        kind = ArtifactKind.JSON
-        if job_definition.type == JobType.DEPTH:
-            from depth_estimation import create_depth_archive
-            if job_definition.implementation_key != "depth_anything_3":
-                raise ValueError("Unsupported depth implementation; use depth_anything_3.")
-            segment_detection_file_path = create_depth_archive(
-                segment_dir, segment_dir / "depth-labels.zip",
-                DepthConfig.model_validate(job_definition.config),
-                camera=job_segment_run.camera.value, route_id=job_segment_run.route_id,
-                segment_id=job_segment_run.segment_id,
-            )
-            kind = ArtifactKind.ZIP
-        else:
-            cvat_function = build_cvat_detection_from_key(
-                key=job_definition.implementation_key, config=job_definition.config,
-            )
-            segment_detection_file_path = cvat_service.get_detections_for_segment(
-                segment_dir=segment_dir, cvat_function=cvat_function, output_dir=segment_dir,
-            )
+        cvat_function = build_cvat_detection_from_key(
+            key=implementation_key,
+            config=config,
+        )
+
+        segment_detection_file_path = cvat_service.get_detections_for_segment(
+            segment_dir=segment_dir,
+            cvat_function=cvat_function,
+            output_dir=Path(segment_dir)
+        )
         object_write_result = minio_service.put_job_segment_run_data(
             job_segment_run=job_segment_run,
             file_path=segment_detection_file_path
@@ -248,7 +237,7 @@ async def process_job_segment_run(
         artifact = await artifact_service.create_artifact(
             bucket=minio_service.bucket_name,
             object_key=object_write_result.object_name,
-            kind=kind
+            kind=ArtifactKind.JSON
         )
 
         job_segment_run.artifact_id = artifact.artifact_id
@@ -259,18 +248,15 @@ async def process_job_segment_run(
         return None
 
     except Exception as e:
-        logging.exception("Failed to process job segment run %s", job_segment_run)
-        await job_segment_run_service.set_status(
-            job_run_num=job_segment_run.job_run_num,
-            job_def_id=job_segment_run.job_def_id,
-            route_id=job_segment_run.route_id,
-            segment_id=job_segment_run.segment_id,
-            camera=job_segment_run.camera,
-            status=JobSegmentRunStatus.FAILED,
+        error = describe_exception(e)
+        logger.exception("Failed %s", label)
+        await record_failure(
+            session,
+            logger,
+            label,
+            lambda: job_segment_run_service.set_status(**ids, status=JobSegmentRunStatus.FAILED, error=error),
         )
-        await session.commit()
-        if job_definition.type == JobType.DEPTH:
-            raise RuntimeError(f"Depth segment {job_segment_run.segment_id} failed: {e}") from e
+        return error
     finally:
         if segment_dir.exists():
             logger.info("Removing dir: %s", segment_dir)
@@ -289,16 +275,22 @@ async def _process_job_run(
     artifact_service: ArtifactService,
     session: AsyncSession,
 ):
-    logging.info(f"Processing job {job_run}")
-    job_segment_runs = []
+    # Copy the IDs out of the ORM object up front: if a step fails and the session is
+    # rolled back, loaded objects expire and can't be read any more.
+    ids = dict(
+        job_run_num=job_run.job_run_num,
+        job_def_id=job_run.job_def_id,
+        route_id=job_run.route_id,
+        camera=job_run.camera,
+    )
+    label = _job_run_label(**ids)
+    logger.info("Processing %s", label)
     try:
         job_definition = await job_definition_service.get_job_definition(job_def_id=ids["job_def_id"])
         if job_definition is None:
-            raise ValueError(f"Could not find job definition {job_run.job_def_id}")
-        if job_definition.type == JobType.DEPTH:
-            if job_definition.implementation_key != "depth_anything_3":
-                raise ValueError("Unsupported depth implementation; use depth_anything_3.")
-            DepthConfig.model_validate(job_definition.config).calibration_for(job_run.camera.value)
+            raise JobDefinitionNotFoundError(ids["job_def_id"])
+        implementation_key = job_definition.implementation_key
+        config = job_definition.config
 
         # Create job_segment_runs for each segment
         job_segment_runs = await create_job_segment_runs_for_job_run(
@@ -328,41 +320,49 @@ async def _process_job_run(
                 artifact_service=artifact_service,
                 session=session,
             )
+            if error is not None:
+                failures[segment_id] = error
 
-        incomplete = [s.segment_id for s in job_segment_runs if s.status != JobSegmentRunStatus.SUCCEEDED or s.artifact_id is None]
-        if incomplete:
-            await job_run_service.set_error(
-                job_run_num=job_run.job_run_num, job_def_id=job_run.job_def_id,
-                route_id=job_run.route_id, camera=job_run.camera,
-                error=f"Annotation incomplete for segments {incomplete}. Export is unavailable until these segments are successfully processed. Completed annotations were preserved.",
-            )
+        total = len(segment_ids)
+        stats = {
+            "segments_total": total,
+            "segments_succeeded": total - len(failures),
+            "segments_failed": len(failures),
+        }
+        await job_run_service.set_stats(**ids, stats=stats)
+
+        if len(failures) == total:
+            # Nothing succeeded: the job run failed
+            summary = summarize_segment_failures(failures, total)
+            logger.error("All segments failed for %s", label)
+            await job_run_service.set_error(**ids, error=summary)
             await session.commit()
-            return
-        logging.info(f"Processing job suceeded: {job_run}")
-        await job_run_service.set_status(
-            job_run_num=job_run.job_run_num,
-            job_def_id=job_run.job_def_id,
-            route_id=job_run.route_id,
-            camera=job_run.camera,
-            status=JobStatus.SUCCEEDED,
-        )
-        await session.commit()
+            await _audit_job_run("job_run.finished", OUTCOME_FAILURE, ids, message=summary, stats=stats)
+        else:
+            await job_run_service.set_status(**ids, status=JobStatus.SUCCEEDED)
+            warning = summarize_segment_failures(failures, total) if failures else None
+            if warning:
+                # Partial success: keep SUCCEEDED (the good segments are usable) but record a warning
+                logger.warning("%s succeeded with %d failed segment(s)", label, len(failures))
+                await job_run_service.set_warning(**ids, warning=warning)
+            await session.commit()
+            logger.info("Succeeded %s", label)
+            await _audit_job_run(
+                "job_run.finished",
+                OUTCOME_WARNING if warning else OUTCOME_SUCCESS,
+                ids,
+                message=warning,
+                stats=stats,
+            )
 
     except Exception as e:
-        logging.exception("Job processing failed: %s", job_run)
-        for segment_run in job_segment_runs:
-            if segment_run.status in (JobSegmentRunStatus.QUEUED, JobSegmentRunStatus.RUNNING):
-                await job_segment_run_service.set_status(
-                    job_run_num=segment_run.job_run_num, job_def_id=segment_run.job_def_id,
-                    route_id=segment_run.route_id, camera=segment_run.camera,
-                    segment_id=segment_run.segment_id, status=JobSegmentRunStatus.FAILED,
-                )
-        await job_run_service.set_error(
-            job_run_num=job_run.job_run_num,
-            job_def_id=job_run.job_def_id,
-            route_id=job_run.route_id,
-            camera=job_run.camera,
-            error=str(e),
+        error = describe_exception(e)
+        logger.exception("Failed %s", label)
+        await record_failure(
+            session,
+            logger,
+            label,
+            lambda: job_run_service.set_error(**ids, error=error),
         )
         await _audit_job_run("job_run.finished", OUTCOME_FAILURE, ids, message=error, error_code=error_code_of(e))
 

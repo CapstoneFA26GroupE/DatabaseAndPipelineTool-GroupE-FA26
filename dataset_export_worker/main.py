@@ -4,8 +4,6 @@ import signal
 import zipfile
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from utilities.depth_archive import extract_depth_archive
-from utilities.depth_label_links import link_depth_to_coco
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -209,7 +207,7 @@ async def _download_job_outputs(
 
         for segment_run in segment_runs:
             if segment_run.artifact_id is None:
-                raise ValueError(f"Cannot export job {selected_job_run.job_def_id}, run {selected_job_run.job_run_num}: segment {segment_run.segment_id} has no annotation output (status: {segment_run.status.value}). Repair the annotation job first; completed segment outputs are preserved.")
+                raise ValueError(f"{segment_run} is missing artifact_id")
 
             artifact = await artifact_service.get_artifact(
                 artifact_id=segment_run.artifact_id
@@ -229,13 +227,7 @@ async def _download_job_outputs(
                 / str(segment_run.segment_id)
                 / "data.json"
             )
-            if artifact.kind == ArtifactKind.ZIP:
-                archive_path = output_path.with_name("depth-labels.zip")
-                minio_service.download_artifact(artifact=artifact, dest_path=archive_path)
-                extract_depth_archive(archive_path, output_path.parent)
-                archive_path.unlink()
-            else:
-                minio_service.download_artifact(artifact=artifact, dest_path=output_path)
+            minio_service.download_artifact(artifact=artifact, dest_path=output_path)
 
 
 def _write_manifest(
@@ -299,17 +291,8 @@ async def _process_dataset_export(
 
         with TemporaryDirectory(dir=DATA_DIR) as temp_dir:
             temp_root = Path(temp_dir)
-            export_root = temp_root / f"route_{dataset_export.route_id.replace('|', '_')}"
+            export_root = temp_root / f"route_{dataset_export.route_id}"
             export_root.mkdir(parents=True, exist_ok=True)
-
-            await _download_job_outputs(
-                selected_job_runs=selected_job_runs,
-                export_root=export_root,
-                job_segment_run_service=job_segment_run_service,
-                artifact_service=artifact_service,
-                minio_service=minio_service,
-            )
-            link_depth_to_coco(export_root)
 
             await _download_route_images(
                 route_id=dataset_export.route_id,
@@ -326,6 +309,13 @@ async def _process_dataset_export(
                 export_root=export_root,
                 segment_service=segment_service,
                 segment_artifact_service=segment_artifact_service,
+                artifact_service=artifact_service,
+                minio_service=minio_service,
+            )
+            await _download_job_outputs(
+                selected_job_runs=selected_job_runs,
+                export_root=export_root,
+                job_segment_run_service=job_segment_run_service,
                 artifact_service=artifact_service,
                 minio_service=minio_service,
             )

@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import type { JobRun } from "../../api/types";
 import { formatCamera, formatRelativeTime } from "../../utils/formatters";
 import { listJobDefinitions } from "../../api/job_definitions";
-import { listJobRunsForRoute } from "../../api/job_runs";
 import { STATUS_COLOR, STATUS_LABEL } from "../../utils/jobSegmentRunConfig";
 import { ExportJobRunButton } from "./ExportJobRunButton";
 import { DeleteJobRunButton } from "./DeleteJobRunButton";
@@ -19,15 +18,6 @@ export function JobRunRow({ jobRun }: { jobRun: JobRun }) {
     queryFn: listJobDefinitions,
   });
   const defName = jobDefs.find((d) => d.id === jobRun.jobDefId)?.name ?? `def ${jobRun.jobDefId}`;
-  const { data: routeRuns = [] } = useQuery({
-    queryKey: ["depth-companions", jobRun.routeId],
-    queryFn: () => listJobRunsForRoute(jobRun.routeId),
-    refetchInterval: 5000,
-  });
-  const depthRun = routeRuns.filter((run) => run.status === "succeeded" && run.camera === jobRun.camera &&
-    jobDefs.find((definition) => definition.id === run.jobDefId)?.type === "depth")
-    .sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
-  const supportsDepth = jobDefs.find((definition) => definition.id === jobRun.jobDefId)?.type === "object_detection";
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--space-3)", padding: "calc(var(--space-2) + 1px) var(--space-3)", backgroundColor: "var(--bg-on-inverse-subtle)", border: "1px solid var(--border-on-inverse-faint)" }}>
@@ -69,11 +59,6 @@ export function JobRunRow({ jobRun }: { jobRun: JobRun }) {
         camera={jobRun.camera}
         jobSucceeded={jobRun.status === "succeeded"}
       />
-      {supportsDepth && depthRun && jobRun.status === "succeeded" && <ExportJobRunButton
-        routeId={jobRun.routeId} jobDefId={jobRun.jobDefId} jobRunNum={jobRun.jobRunNum}
-        camera={jobRun.camera} jobSucceeded={true}
-        companionDepth={{ jobDefId: depthRun.jobDefId, jobRunNum: depthRun.jobRunNum, camera: depthRun.camera }}
-      />}
     </div>
   );
 }
