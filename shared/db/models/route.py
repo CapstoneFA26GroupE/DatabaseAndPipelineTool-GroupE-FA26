@@ -52,7 +52,3 @@ class Route(Base):
     )
     def __repr__(self):
         return f"Route({self.route_id}, {self.file_path}, {self.status})"
-
-    @property
-    def download_error(self) -> dict | None:
-        return (self.meta or {}).get('download_error')

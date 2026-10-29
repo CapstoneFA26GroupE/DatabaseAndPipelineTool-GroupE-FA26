@@ -1,5 +1,5 @@
 minio
-sqlalchemy[asyncio]
+sqlalchemy
 psycopg[binary]
 alembic
 httpx

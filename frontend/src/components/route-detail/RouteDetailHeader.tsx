@@ -76,12 +76,6 @@ export function RouteDetailHeader({
       >
         ← Routes
       </button>
-      {(route.downloadError || route.status === "failed") && (
-        <p role="alert" style={{ color: "var(--accent-alert)", fontSize: "var(--text-sm)", lineHeight: 1.5 }}>
-          {route.downloadError || "This route failed before detailed errors were recorded. Check the worker logs or retry it."}
-          {" To retry, delete the failed route and import it again after fixing the cause."}
-        </p>
-      )}
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-4)", flexWrap: "wrap", marginBottom: "var(--space-2)" }}>
         <h1 style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-on-inverse)", letterSpacing: "-0.01em", margin: 0 }}>

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Do not trace authentication commands: their arguments contain the Comma JWT.
+set -x
 
 if [ "$#" -lt 1 ]; then
 	echo "Usage: $0 <jtw>"

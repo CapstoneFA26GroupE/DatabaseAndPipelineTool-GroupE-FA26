@@ -140,13 +140,9 @@ export default function RouteDashboard() {
         {isPolling && <LiveDot />}
       <ImportRouteButton
         onImport={async (routeId) => {
-          try {
-            await createRoute(routeId);
-            queryClient.invalidateQueries({ queryKey: ["routes"] });
-          } catch (err) {
-            console.error("Failed to import route:", err);
-            throw err;
-          }
+          // Errors propagate to ImportRouteButton, which shows them
+          await createRoute(routeId);
+          queryClient.invalidateQueries({ queryKey: ["routes"] });
         }}
       />
       </div>
