@@ -1,6 +1,5 @@
 import { Outlet } from "react-router-dom";
 import TopBar from "../components/TopBar";
-import ErrorToaster from "../components/ErrorToaster";
 
 // Total offset = racing stripe (3px) + topbar (48px)
 const TOP_OFFSET = "calc(3px + var(--topbar-height))";
@@ -21,7 +20,6 @@ export default function AppLayout() {
       >
         <Outlet />
       </main>
-      <ErrorToaster />
     </div>
   );
 }

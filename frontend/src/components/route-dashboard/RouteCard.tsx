@@ -5,7 +5,6 @@ import { RouteThumbnail } from "./RouteThumbnail";
 import { StatusBadge } from "./StatusBadge";
 import { UploadBar } from "./UploadBar";
 import { deleteRoute } from "../../api/routes";
-import { FailureReason } from "../FailureReason";
 
 export function RouteCard({
   route,
@@ -107,11 +106,6 @@ export function RouteCard({
           <div style={{ marginTop: "4px", fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
             {formatDate(route.createdAt)}
           </div>
-          {route.error && (
-            <div style={{ marginTop: "4px" }}>
-              <FailureReason text={route.error} tone={route.status === "failed" ? "alert" : "warning"} variant="compact" maxWidth="100%" />
-            </div>
-          )}
         </div>
 
         <div style={{ height: "1px", backgroundColor: "var(--border-subtle)" }} />

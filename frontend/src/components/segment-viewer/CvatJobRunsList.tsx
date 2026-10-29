@@ -7,7 +7,6 @@ import { STATUS_COLOR, STATUS_LABEL, resolveAction } from "../../utils/jobSegmen
 import type { CvatAction } from "../../utils/jobSegmentRunConfig";
 import { formatCamera } from "../../utils/formatters";
 import { CvatActionButton } from "./CvatActionButton";
-import { FailureReason } from "../FailureReason";
 
 type RunKeyFields = Pick<JobSegmentRun, "jobDefId" | "jobRunNum" | "segmentId" | "camera">;
 const runKey = (r: RunKeyFields) => `${r.jobDefId}-${r.jobRunNum}-${r.segmentId}-${r.camera}`;
@@ -49,7 +48,6 @@ export function CvatJobRunsList({ routeId, segmentId }: { routeId: string; segme
       queryClient.setQueryData<CvatImport | null>(key, newImport);
       return queryClient.invalidateQueries({ queryKey: key });
     },
-    meta: { errorTitle: "Could not load segment into CVAT" },
   });
 
   const unloadMutation = useMutation({
@@ -60,7 +58,6 @@ export function CvatJobRunsList({ routeId, segmentId }: { routeId: string; segme
       queryClient.setQueryData<CvatImport | null>(key, null);
       return queryClient.invalidateQueries({ queryKey: key });
     },
-    meta: { errorTitle: "Could not remove segment from CVAT" },
   });
 
   const pendingKey   = loadMutation.isPending   && loadMutation.variables   ? runKey(loadMutation.variables)   : null;
@@ -116,7 +113,7 @@ function RunRow({ run, imp, action, defName, isLoading, isUnloading, onLoad, onU
     action;
 
   return (
-    <div className="flex flex-wrap items-center gap-[var(--space-3)] py-[calc(var(--space-2)+1px)] px-[var(--space-3)] bg-[var(--bg-elevated)] border border-[var(--border-subtle)]">
+    <div className="flex items-center gap-[var(--space-3)] py-[calc(var(--space-2)+1px)] px-[var(--space-3)] bg-[var(--bg-elevated)] border border-[var(--border-subtle)]">
       <div className="flex items-center gap-[6px] min-w-[90px]">
         {isActive && <span className="w-[5px] h-[5px] rounded-full shrink-0" style={{ backgroundColor: color }} />}
         <span className="text-[10px] font-bold tracking-[0.07em] uppercase [font-family:var(--font-mono)]" style={{ color }}>
@@ -126,8 +123,11 @@ function RunRow({ run, imp, action, defName, isLoading, isUnloading, onLoad, onU
       <span className="text-[10px] [font-family:var(--font-mono)] text-[var(--text-secondary)] flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
         job #{run.jobRunNum} · {defName} · {formatCamera(run.camera)}
       </span>
-      {run.status === "failed" && run.error && <FailureReason text={run.error} maxWidth="160px" />}
-      {imp?.status === "failed" && imp.errorMessage && <FailureReason text={imp.errorMessage} maxWidth="160px" />}
+      {imp?.status === "failed" && imp.errorMessage && (
+        <span title={imp.errorMessage} className="text-[9px] [font-family:var(--font-mono)] text-[var(--accent-alert)] max-w-[140px] overflow-hidden text-ellipsis whitespace-nowrap">
+          {imp.errorMessage}
+        </span>
+      )}
       {imp?.status === "loaded" && (
         <button
           type="button"

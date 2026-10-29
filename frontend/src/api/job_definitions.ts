@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, ApiError } from "./client";
 import {
   type JobDefinitionResponse,
   type JobDefinitionCreate,
@@ -25,17 +25,25 @@ export async function getJobDefinition(id: number): Promise<JobDefinition> {
 export async function createJobDefinition(
   data: JobDefinitionCreate
 ): Promise<JobDefinition> {
-  const raw = await apiFetch<JobDefinitionResponse>("/job-definitions/", {
-    method: "POST",
-    body: JSON.stringify({
-      type: data.type,
-      implementation_key: data.implementation_key,
-      name: data.name,
-      config: data.config,
-      description: data.description,
-    }),
-  });
-  return mapJobDefinition(raw);
+  try {
+    const raw = await apiFetch<JobDefinitionResponse>("/job-definitions/", {
+      method: "POST",
+      body: JSON.stringify({
+        type: data.type,
+        implementation_key: data.implementation_key,
+        name: data.name,
+        config: data.config,
+        description: data.description,
+      }),
+    });
+    return mapJobDefinition(raw);
+  } catch (err) {
+    // 422 error
+    if (err instanceof ApiError && err.status === 422) {
+      throw new Error(`Validation error: ${err.message}`);
+    }
+    throw err;
+  }
 }
 
 /** Delete a job definition by ID */

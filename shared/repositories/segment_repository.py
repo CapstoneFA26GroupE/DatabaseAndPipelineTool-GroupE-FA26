@@ -5,6 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.segment import Segment,SegmentStatus 
 from db.models.frame import Frame
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import shlex
 import signal
@@ -18,16 +19,6 @@ from services.open_pilot_route_service import OpenPilotRouteService
 from services.route_service import RouteService, RouteStatus
 from services.segment_service import SegmentService
 from utilities.timing_utilities import convert_milliseconds_to_timestamp
-from services.audit_service import (
-    OUTCOME_FAILURE,
-    OUTCOME_SUCCESS,
-    OUTCOME_WARNING,
-    configure_audit,
-    record_audit,
-)
-from utilities.error_utilities import describe_exception, error_code_of, record_failure, summarize_segment_failures
-from utilities.logging_utilities import configure_logging
-from services.errors import CommaRouteNotFoundError, RouteHasNoSegmentsError
 
 
 POLL_INTERVAL_SECONDS = 2.0
@@ -35,7 +26,11 @@ OPENPILOT_DIR = Path("/app/openpilot")
 DATA_ROOT = Path("/app/data")
 ROUTE_PROCESS_TIMEOUT_SECONDS = float(os.getenv("ROUTE_PROCESS_TIMEOUT_SECONDS", "0"))
 
-logger = configure_logging("open_pilot_download_worker")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 def _output_dir_snapshot(output_dir: Path, *, sample_limit: int = 10) -> tuple[int, list[str]]:
@@ -160,27 +155,9 @@ async def _mark_stale_downloading_routes_as_failed(route_service: RouteService) 
         return
 
     for route in stale_routes:
-        await route_service.set_status(
-            route.route_id,
-            RouteStatus.FAILED,
-            error=(
-                "The open_pilot_download_worker restarted while this route was downloading. "
-                "| How to fix: Delete the route and import it again."
-            ),
-        )
-        # file_path can be None (failed before it was set) or the folder may already be gone;
-        # previously this crashed the worker on every startup
-        if route.file_path:
-            shutil.rmtree(DATA_ROOT / route.file_path, ignore_errors=True)
+        await route_service.set_status(route.route_id, RouteStatus.FAILED)
+        shutil.rmtree(DATA_ROOT / str(route.file_path))
         logger.warning("Marked stale route as failed on startup: route=%s", route.route_id)
-        await record_audit(
-            "route.download.interrupted",
-            OUTCOME_FAILURE,
-            entity_type="route",
-            entity_id=route.route_id,
-            route_id=route.route_id,
-            message="The open_pilot_download_worker restarted while this route was downloading.",
-        )
 
 
 async def _extract_single_segment(segment_path: str, output_dir: Path) -> None:
@@ -278,7 +255,7 @@ async def create_segments_for_route(route: Route, segment_service: SegmentServic
     route_metadata = await open_pilot_route_service.get_route_metadata(route_name=route.route_id)
 
     if not route_metadata:
-        raise CommaRouteNotFoundError(route.route_id)
+        raise ValueError(f"Could not get metadata for route {route}")
 
     num_segments = len(route_metadata.segment_numbers)
 
@@ -297,35 +274,33 @@ async def create_segments_for_route(route: Route, segment_service: SegmentServic
 
 
 async def process_route(route_to_process: Route, route_service: RouteService, segment_service: SegmentService, session: AsyncSession):
-    # Plain ID: still usable if the session is rolled back after a failure
-    route_id = route_to_process.route_id
-    logger.info("Processing route %s", route_id)
+    logging.info(f"Processing route {route_to_process.route_id}")
+    await route_service.set_status(
+        route_id=route_to_process.route_id,
+        status=RouteStatus.DOWNLOADING
+    )
+    await session.commit()
 
     unique_path = str(uuid4())
     data_dir = DATA_ROOT / unique_path
     try:
-        await route_service.set_status(route_id=route_id, status=RouteStatus.DOWNLOADING)
-        await session.commit()
-
         segments_to_download: list[Segment] = await create_segments_for_route(
             route_to_process,
             segment_service
         )
-        segment_ids = [segment.segment_id for segment in segments_to_download]
         await session.commit()
-        logger.info("Found %d segments for %s", len(segment_ids), route_id)
-        if not segment_ids:
-            raise RouteHasNoSegmentsError(route_id)
+        logging.info(f"Found {len(segments_to_download)} segments for {route_to_process.route_id}")
 
-        await route_service.set_file_path(route_id=route_id, file_path=unique_path)
+        await route_service.set_file_path(
+            route_id=route_to_process.route_id,
+            file_path=unique_path
+        )
         await session.commit()
 
-        # Download every segment; a failed segment is recorded and skipped
-        failures: dict[int, str | None] = {}
-        for segment_id in segment_ids:
+        for segment in segments_to_download:
             await segment_service.set_status(
-                route_id=route_id,
-                segment_id=segment_id,
+                route_id=segment.route_id,
+                segment_id=segment.segment_id,
                 status=SegmentStatus.DOWNLOADING
             )
             await session.commit()
@@ -333,93 +308,47 @@ async def process_route(route_to_process: Route, route_service: RouteService, se
             try:
                 await _extract_single_segment(
                     # should look like this: "db478799b6f9f210/00000040--8afe968813/1"
-                    segment_path=f"{route_id}/{segment_id}",
-                    output_dir=data_dir / str(segment_id)
+                    segment_path=f"{route_to_process.route_id}/{segment.segment_id}",
+                    output_dir=data_dir / str(segment.segment_id)
                 )
                 await segment_service.set_status(
-                    route_id=route_id,
-                    segment_id=segment_id,
+                    route_id=segment.route_id,
+                    segment_id=segment.segment_id,
                     status=SegmentStatus.UPLOAD_QUEUE
                 )
                 await session.commit()
-                logger.info("Downloaded segment %s/%s", route_id, segment_id)
-            except Exception as e:
-                error = describe_exception(e)
-                failures[segment_id] = error
-                logger.exception("Failed to download segment %s/%s... skipping", route_id, segment_id)
-                await record_audit(
-                    "segment.download.finished",
-                    OUTCOME_FAILURE,
-                    entity_type="segment",
-                    entity_id=f"{route_id}/seg {segment_id}",
-                    route_id=route_id,
-                    message=error,
-                    error_code=error_code_of(e),
+                logging.info(f"Successfully uploaded segment {segment}")
+            except Exception:
+                logging.error(f"Failed to download segment {segment}... skipping")
+                shutil.rmtree(data_dir / str(segment.segment_id))
+                await segment_service.set_status(
+                    route_id=segment.route_id,
+                    segment_id=segment.segment_id,
+                    status=SegmentStatus.FAILED
                 )
-                shutil.rmtree(data_dir / str(segment_id), ignore_errors=True)
-                await record_failure(
-                    session,
-                    logger,
-                    f"segment {route_id}/{segment_id}",
-                    lambda: segment_service.set_status(
-                        route_id=route_id,
-                        segment_id=segment_id,
-                        status=SegmentStatus.FAILED,
-                        error=error,
-                    ),
-                )
-
-        if len(failures) == len(segment_ids):
-            # Nothing to upload. Before this fix the route went to UPLOAD_QUEUE and stayed there forever.
-            shutil.rmtree(data_dir, ignore_errors=True)
-            error = summarize_segment_failures(failures, len(segment_ids), action="failed to download")
-            logger.error("Every segment of route %s failed to download", route_id)
-            await route_service.set_status(route_id=route_id, status=RouteStatus.FAILED, error=error)
-            await session.commit()
-            await record_audit(
-                "route.download.finished", OUTCOME_FAILURE,
-                entity_type="route", entity_id=route_id, route_id=route_id, message=error,
-                details={"segments_total": len(segment_ids), "segments_failed": len(failures)},
-            )
-        else:
-            if failures:
-                # Some segments failed: keep going with the rest, but record a warning on the route
-                warning = summarize_segment_failures(failures, len(segment_ids), action="failed to download")
-                await route_service.set_status(route_id=route_id, status=RouteStatus.UPLOAD_QUEUE, error=warning)
-            else:
-                await route_service.set_status(route_id=route_id, status=RouteStatus.UPLOAD_QUEUE)
-            logger.info("Route %s downloaded (%d failed segment(s))", route_id, len(failures))
-            await session.commit()
-            await record_audit(
-                "route.download.finished", OUTCOME_WARNING if failures else OUTCOME_SUCCESS,
-                entity_type="route", entity_id=route_id, route_id=route_id,
-                message=warning if failures else None,
-                details={"segments_total": len(segment_ids), "segments_failed": len(failures)},
-            )
+                await session.commit()
 
     except Exception as e:
-        # Before this fix, the route was marked FAILED here and then immediately overwritten
-        # with UPLOAD_QUEUE by the code after this block.
-        error = describe_exception(e)
-        logger.exception("Could not process route %s", route_id)
-        shutil.rmtree(data_dir, ignore_errors=True)
-        await record_failure(
-            session,
-            logger,
-            f"route {route_id}",
-            lambda: route_service.set_status(route_id=route_id, status=RouteStatus.FAILED, error=error),
+        await route_service.set_status(
+            route_id=route_to_process.route_id,
+            status=RouteStatus.FAILED
         )
-        await record_audit(
-            "route.download.finished", OUTCOME_FAILURE,
-            entity_type="route", entity_id=route_id, route_id=route_id,
-            message=error, error_code=error_code_of(e),
-        )
+        await session.commit()
+        logging.error(f"Could not process route {route_to_process}", e)
+        shutil.rmtree(data_dir)
+
+    logging.info(f"Rout processed {route_to_process.route_id}")
+    await route_service.set_status(
+        route_id=route_to_process.route_id,
+        status=RouteStatus.UPLOAD_QUEUE
+    )
+    await session.commit()
+    
 
 
 async def main():
     engine = create_async_engine(build_database_url(), pool_pre_ping=True)
     SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
-    configure_audit(SessionLocal, source="open_pilot_download_worker")
     stop_event = asyncio.Event()
 
     loop = asyncio.get_running_loop()

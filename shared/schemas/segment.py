@@ -12,8 +12,6 @@ class JobSegmentRunResponse(BaseModel):
     camera: CameraType
     segment_id: int
     status: JobSegmentRunStatus
-    # Why this segment failed during the job run
-    error: str | None = None
 
 class CreateSegmentRequest(BaseModel):
     route_id: str
@@ -31,8 +29,6 @@ class SegmentResponse(BaseModel):
     end_time: datetime
     status: SegmentStatus
     created_at: datetime
-    # Why the segment failed to download/upload
-    error: str | None = None
 
 class SegmentJobImportResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
