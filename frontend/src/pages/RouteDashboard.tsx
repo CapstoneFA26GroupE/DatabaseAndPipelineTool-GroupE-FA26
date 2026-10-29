@@ -13,7 +13,6 @@ import { LiveDot } from "../components/route-dashboard/LiveDot";
 import { ImportRouteButton } from "../components/route-dashboard/ImportRouteButton";
 import { createRoute } from "../api/routes";
 import { useQueryClient } from "@tanstack/react-query";
-import { ErrorNotice } from "../components/ErrorNotice";
 type SortKey = "date" | "status" | "segments";
 
 export default function RouteDashboard() {
@@ -58,7 +57,7 @@ export default function RouteDashboard() {
   const segments = segmentsQuery.data ?? [];
   const jobRuns = jobRunsQuery.data ?? [];
   const loading = routesQuery.isLoading;
-  const error = routesQuery.error ?? null;
+  const error = routesQuery.error ? (routesQuery.error as Error).message ?? "Failed to load routes" : null;
   const isPolling = routesQuery.isFetching || segmentsQuery.isFetching || jobRunsQuery.isFetching;
 
   // ── Computed per-route maps ─────────────────────────────────────────────────
@@ -140,9 +139,12 @@ export default function RouteDashboard() {
         {isPolling && <LiveDot />}
       <ImportRouteButton
         onImport={async (routeId) => {
-          // Errors propagate to ImportRouteButton, which shows them
-          await createRoute(routeId);
-          queryClient.invalidateQueries({ queryKey: ["routes"] });
+          try {
+            await createRoute(routeId);
+            queryClient.invalidateQueries({ queryKey: ["routes"] });
+          } catch (err) {
+            console.error("Failed to import route:", err);
+          }
         }}
       />
       </div>
@@ -189,9 +191,9 @@ export default function RouteDashboard() {
       </div>
 
       {/* Error */}
-      {error != null && (
-        <div style={{ marginBottom: "var(--space-4)" }}>
-          <ErrorNotice error={error} title="Could not load routes" />
+      {error && (
+        <div style={{ padding: "var(--space-4)", border: "1px solid var(--accent-alert)", backgroundColor: "var(--status-alert-bg)", color: "var(--status-alert-text)", fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)", marginBottom: "var(--space-4)" }}>
+          Error: {error}
         </div>
       )}
 

@@ -23,7 +23,6 @@ export default function RefreshCvatButton() {
   const mutation = useMutation({
     mutationFn: restartCvat,
     onSuccess: () => setCooldownLeft(COOLDOWN_SECONDS),
-    meta: { errorTitle: "Could not restart CVAT" },
   });
 
   useEffect(() => {

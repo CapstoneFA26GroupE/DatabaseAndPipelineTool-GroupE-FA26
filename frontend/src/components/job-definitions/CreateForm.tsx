@@ -2,7 +2,6 @@ import { useState } from "react";
 import { createJobDefinition } from "../../api/job_definitions";
 import type { JobDefinition, JobDefinitionCreate } from "../../api/types";
 import { ConfigEditor } from "./ConfigEditor";
-import { ErrorNotice } from "../ErrorNotice";
 
 // ─── CreateForm ───────────────────────────────────────────────────────────────
 
@@ -12,7 +11,7 @@ export function CreateForm({ onCreated }: { onCreated: (def: JobDefinition) => v
   const [description, setDescription] = useState("");
   const [config, setConfig] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<unknown>(null);
+  const [error, setError] = useState<string | null>(null);
   const [showInfo, setShowInfo] = useState(false);
 
   const canSubmit = Boolean(name.trim() && implKey.trim() && !submitting);
@@ -46,7 +45,7 @@ export function CreateForm({ onCreated }: { onCreated: (def: JobDefinition) => v
       setConfig({});
       onCreated(result);
     } catch (err: unknown) {
-      setError(err);
+      setError(err instanceof Error ? err.message : "Failed to create job definition");
     } finally {
       setSubmitting(false);
     }
@@ -116,7 +115,7 @@ export function CreateForm({ onCreated }: { onCreated: (def: JobDefinition) => v
         <ConfigEditor config={config} onChange={setConfig} />
 
         {/* Error */}
-        {error != null && <ErrorNotice error={error} title="Could not create job definition" />}
+        {error && <div className="jd-error">{error}</div>}
 
         {/* Submit */}
         <button

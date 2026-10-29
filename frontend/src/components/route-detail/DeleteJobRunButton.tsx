@@ -35,7 +35,6 @@ export function DeleteJobRunButton({ routeId, jobDefId, jobRunNum, camera, statu
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["jobRuns", routeId] });
     },
-    meta: { errorTitle: isQueued ? "Could not cancel job run" : "Could not delete job run" },
   });
 
   if (status === "running") return null;

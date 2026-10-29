@@ -223,30 +223,6 @@ Before commiting any code, run the `pyright` static type checker and fix any iss
 
 `pyright`
 
-### Error Handling
-
-**Seeing an error?** See the [Error Guide](./docs/ERROR_GUIDE.md): what each error code means and how to fix it, plus common setup problems. The **Activity** page in the app shows an audit log of every action and pipeline outcome.
-
-Expected errors are defined in `shared/services/errors.py`. Every error subclasses `PipelineError` and carries a stable `code`, an HTTP `status_code`, and a user-facing `hint` that explains how to fix the problem. The backend has one handler for all of them, so every error response has the same shape:
-
-```json
-{
-  "detail": "Route db478799b6f9f210|0000000e--9ecd39f6bc is not ready for job creation; current status is downloading",
-  "code": "ROUTE_NOT_READY",
-  "hint": "Job runs can only be created once the route status is UPLOADED. ...",
-  "context": { "route_id": "db478799b6f9f210|0000000e--9ecd39f6bc", "status": "downloading" },
-  "request_id": "4f1c2a9b7d10"
-}
-```
-
-- To add a new error, subclass `PipelineError` (or `NotFoundError` / `ConflictError` / `AlreadyExistsError`), set `code`, `status_code` and `hint`, and raise it. You don't need a new handler in `backend/main.py`.
-- Unexpected exceptions return `500` with `code: "INTERNAL_ERROR"` and a `request_id`. Every backend log line includes `[req=<id>]`, so you can find the traceback with `docker compose logs backend | grep <request_id>`.
-- **Failure reasons are stored in the database.** `routes.error`, `segments.error`, `job_runs.error`, `job_segment_run.error`, `dataset_exports.error` and `job_segment_run_review.error_message` say why something failed, formatted as `<what went wrong> | How to fix: <hint>`, and the UI shows them. A route or job run that partly succeeded keeps its success status and stores a warning such as `2 of 10 segments failed (segments: 3, 7) ...`. Use `describe_exception()` and `record_failure()` from `shared/utilities/error_utilities.py` when writing a new worker.
-- **Logging:** call `logger = configure_logging("<service_name>")` from `shared/utilities/logging_utilities.py` once at the top of a worker. Inside `except` blocks use `logger.exception("what failed")` so the traceback is kept. Don't write `logging.error(f"...", e)`: that drops the error. Set `LOG_LEVEL=DEBUG` for more detail.
-- **Audit log:** every change made through the API (including failed attempts) and every worker outcome is recorded in the `audit_logs` table, shown on the **Activity** page and available at `GET /audit-logs/`. The API records actions automatically (`backend/api/audit.py`); in a worker, call `configure_audit(SessionLocal, source="<worker>")` once and `record_audit(...)` for outcomes (`shared/services/audit_service.py`).
-- **Migrations:** the `error` columns (`c4e1a9b27d53`) and the `audit_logs` table (`d7f3b2e8a1c4`). To apply them to an existing database, run `docker compose up --build alembic_worker`.
-- In the frontend, `apiFetch` throws an `ApiError` with `code`, `hint` and `requestId`. Failed mutations show a toast automatically (set `meta: { errorTitle: "Could not ..." }` for a clear title, or `meta: { inlineError: true }` if the component shows the error itself with `<ErrorNotice />`).
-
 ## Testing
 
 Testing code is inside the `./tests/` folder. See [Tests Readme](./tests/README.md) for more information.
