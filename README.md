@@ -1,5 +1,9 @@
 # Openpilot Data Pipeline
 
+Pixel-level monocular depth labels are available through the **Monocular Depth
+(DA3)** job definition. See [setup, calibration and export instructions](scripts/Depth-Anything-3.md).
+Use **Export + depth** on a completed detection job to include matching depth maps.
+
 ## Authors for Capstone 2026
 - Kalyani Valath
 - Chi Nguyen
@@ -131,6 +135,29 @@ Our current goals are to:
 1. Move the license into the folder. It should be called `minio/minio.license`
 
 ## Running the Code
+
+### Windows startup launcher (recommended for daily use)
+
+New users can download **MiLa-Installer.exe** alone; it includes the project and
+automatically downloads Python when missing. It installs into
+`%LOCALAPPDATA%\MiLa\Project` and opens the account screen.
+For development, double-click **Start-MiLa-GUI.cmd** or **MiLa-Launcher.exe** in this folder.
+The editable Python workspace uses Python 3.10+ with Tcl/Tk. The bootstrap
+installs pywebview and Microsoft WebView2 Runtime if missing. Saved credentials
+select **Existing Account** automatically; **New Account** displays the setup form.
+The setup screen collects one
+shared account for new PostgreSQL, MinIO and CVAT installations, a Comma JWT, and
+your MinIO license file. It saves `.env`, installs missing Windows prerequisites,
+shows download/build progress, and displays MiLa and CVAT inside native tabs.
+Saved credentials are available under **Account**.
+Keep the executable with the complete project folder. See
+[GUI launcher details](launcher/README.md) for setup, editing and limitations.
+**Start-MiLa.cmd** remains available as the console alternative.
+
+See [Startup instructions and troubleshooting](scripts/STARTUP.md) for first-time
+setup, read-only checks, rebuild options, and limitations.
+
+### Manual startup
 
 1. Start the databases with 
 ```bash 

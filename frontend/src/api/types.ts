@@ -33,7 +33,7 @@ export interface RouteResponse {
   file_path: string | null;
   status: RouteStatus;
   created_at: string;
-  error?: string | null;
+  download_error?: { code: string; message: string } | null;
 }
 
 export interface SegmentResponse {
@@ -68,8 +68,7 @@ export interface Route {
   filePath: string | null;
   createdAt: string;
   status: RouteStatus;
-  /** Why the route failed, or a warning when some segments failed. */
-  error: string | null;
+  downloadError?: string | null;
 }
 
 export interface Segment {
@@ -182,7 +181,7 @@ export function mapCvatImport(r: CvatImportResponse): CvatImport {
 
 // ─── Job Definition Types ────────────────────────────────────────────────────
 
-export type JobType = "object_detection" | "lane_detection" | "segmentation";
+export type JobType = "object_detection" | "lane_detection" | "segmentation" | "depth";
 
 export interface JobDefinitionResponse {
   job_def_id: number;
@@ -220,7 +219,7 @@ export function mapRoute(r: RouteResponse): Route {
     filePath: r.file_path,
     createdAt: r.created_at,
     status: r.status,
-    error: r.error ?? null,
+    downloadError: r.download_error?.message ?? null,
   };
 }
 
