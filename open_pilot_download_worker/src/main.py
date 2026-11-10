@@ -43,6 +43,17 @@ from utilities.timing_utilities import convert_milliseconds_to_timestamp
 POLL_INTERVAL_SECONDS = 2.0
 OPENPILOT_DIR = Path("/app/openpilot")
 DATA_ROOT = Path("/app/data")
+
+# Sets attempts and delay time for download retries
+SEGMENT_DOWNLOAD_MAX_ATTEMPTS = max(
+    1,
+    int(os.getenv("SEGMENT_DOWNLOAD_MAX_ATTEMPTS", "3")),
+)
+SEGMENT_DOWNLOAD_RETRY_BASE_DELAY_SECONDS = max(
+    0.0,
+    float(os.getenv("SEGMENT_DOWNLOAD_RETRY_BASE_DELAY_SECONDS", "1")),
+)
+
 ROUTE_PROCESS_TIMEOUT_SECONDS = float(os.getenv("ROUTE_PROCESS_TIMEOUT_SECONDS", "0"))
 
 logger = configure_logging("open_pilot_download_worker")
@@ -411,10 +422,37 @@ async def process_route(
             await session.commit()
 
             try:
-                await _extract_single_segment(
-                    segment_path=f"{route_id}/{segment_id}",
-                    output_dir=data_dir / str(segment_id),
-                )
+                for attempt in range(1, SEGMENT_DOWNLOAD_MAX_ATTEMPTS + 1):
+                    try:
+                        await _extract_single_segment(
+                            segment_path=f"{route_id}/{segment_id}",
+                            output_dir=data_dir / str(segment_id),
+                        )
+                    except Exception as error:
+                        shutil.rmtree(
+                            data_dir / str(segment_id),
+                            ignore_errors=True,
+                        )
+
+                        if attempt == SEGMENT_DOWNLOAD_MAX_ATTEMPTS:
+                            raise
+
+                        retry_delay = (
+                            SEGMENT_DOWNLOAD_RETRY_BASE_DELAY_SECONDS
+                            * (2 ** (attempt - 1))
+                        )
+                        logger.warning(
+                            "Download attempt %d/%d failed for segment %s/%s; "
+                            "retrying in %.1f seconds: %s",
+                            attempt,
+                            SEGMENT_DOWNLOAD_MAX_ATTEMPTS,
+                            route_id,
+                            segment_id,
+                            retry_delay,
+                            error,
+                            exc_info=True,
+                        )
+                        await asyncio.sleep(retry_delay)
             except Exception as error:
                 details = describe_download_failure(error)
                 message = f"Segment {segment_id}: {details['message']}"
