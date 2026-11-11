@@ -72,6 +72,25 @@ class RouteService:
         route.meta = meta
         return await self._route_repository.save(route)
 
+    async def set_download_retry(
+            self,
+            route_id: str,
+            retry: dict | None,
+    ) -> Route:
+        route = await self._route_repository.get_by_id(route_id)
+        if route is None:
+            raise RouteNotFoundError(route_id)
+
+        meta = dict(route.meta or {})
+        if retry is None:
+            meta.pop("download_retry", None)
+        else:
+            meta["download_retry"] = retry
+        route.meta = meta
+        return await self._route_repository.save(route)
+    
+
+
     async def delete_route(self, route_id: str) -> None:
         route = await self._route_repository.get_by_id(route_id)
         if route is None:
