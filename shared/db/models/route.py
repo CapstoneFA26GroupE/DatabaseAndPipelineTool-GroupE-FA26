@@ -56,3 +56,8 @@ class Route(Base):
     @property
     def download_error(self) -> dict | None:
         return (self.meta or {}).get('download_error')
+
+    #Added property for download retry attempts
+    @property
+    def download_retry(self) -> dict | None:
+        return (self.meta or {}).get("download_retry")

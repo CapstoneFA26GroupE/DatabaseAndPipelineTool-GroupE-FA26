@@ -18,3 +18,4 @@ class RouteResponse(BaseModel):
     status: RouteStatus
     created_at: datetime
     download_error: dict[str, str] | None = None
+    download_retry: dict[str, int] | None = None

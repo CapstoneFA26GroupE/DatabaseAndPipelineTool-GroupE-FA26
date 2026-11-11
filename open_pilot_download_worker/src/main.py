@@ -43,6 +43,17 @@ from utilities.timing_utilities import convert_milliseconds_to_timestamp
 POLL_INTERVAL_SECONDS = 2.0
 OPENPILOT_DIR = Path("/app/openpilot")
 DATA_ROOT = Path("/app/data")
+
+# Sets attempts and delay time for download retries
+SEGMENT_DOWNLOAD_MAX_ATTEMPTS = max(
+    1,
+    int(os.getenv("SEGMENT_DOWNLOAD_MAX_ATTEMPTS", "3")),
+)
+SEGMENT_DOWNLOAD_RETRY_BASE_DELAY_SECONDS = max(
+    0.0,
+    float(os.getenv("SEGMENT_DOWNLOAD_RETRY_BASE_DELAY_SECONDS", "1")),
+)
+
 ROUTE_PROCESS_TIMEOUT_SECONDS = float(os.getenv("ROUTE_PROCESS_TIMEOUT_SECONDS", "0"))
 
 logger = configure_logging("open_pilot_download_worker")
@@ -208,6 +219,7 @@ async def _mark_stale_downloading_routes_as_failed(
                 error=message,
             )
             await route_service.set_download_error(route.route_id, details)
+            await route_service.set_download_retry(route.route_id, None)
 
         await record_failure(
             session,
@@ -294,13 +306,18 @@ async def _extract_single_segment(
                         f"({ROUTE_PROCESS_TIMEOUT_SECONDS}s) for route "
                         f"{segment_path}"
                     )
-
-            if replay_wait_task in done and not extraction_wait_task.done():
+            if replay_wait_task in done:
                 replay_exit_code = replay_wait_task.result()
-                raise RuntimeError(
-                    f"replay exited early with code {replay_exit_code} "
-                    f"while extraction was still running for {segment_path}"
-                )
+                if replay_exit_code != 0:
+                    raise RuntimeError(
+                        f"replay exited with code {replay_exit_code} "
+                        f"for route {segment_path}"
+                    )
+                if not extraction_wait_task.done():
+                    raise RuntimeError(
+                        f"replay exited early with code {replay_exit_code} "
+                        f"while extraction was still running for {segment_path}"
+                    )
 
             if extraction_wait_task in done:
                 extraction_exit_code = extraction_wait_task.result()
@@ -378,6 +395,7 @@ async def process_route(
 
     try:
         await route_service.set_download_error(route_id, None)
+        await route_service.set_download_retry(route_id, None)
         await route_service.set_status(
             route_id=route_id,
             status=RouteStatus.DOWNLOADING,
@@ -411,11 +429,48 @@ async def process_route(
             await session.commit()
 
             try:
-                await _extract_single_segment(
-                    segment_path=f"{route_id}/{segment_id}",
-                    output_dir=data_dir / str(segment_id),
-                )
+                for attempt in range(1, SEGMENT_DOWNLOAD_MAX_ATTEMPTS + 1):
+                    try:
+                        await _extract_single_segment(
+                            segment_path=f"{route_id}/{segment_id}",
+                            output_dir=data_dir / str(segment_id),
+                        )
+                    except Exception as error:
+                        shutil.rmtree(
+                            data_dir / str(segment_id),
+                            ignore_errors=True,
+                        )
+
+                        if attempt == SEGMENT_DOWNLOAD_MAX_ATTEMPTS:
+                            raise
+
+                        retry_delay = (
+                            SEGMENT_DOWNLOAD_RETRY_BASE_DELAY_SECONDS
+                            * (2 ** (attempt - 1))
+                        )
+                        logger.warning(
+                            "Download attempt %d/%d failed for segment %s/%s; "
+                            "retrying in %.1f seconds: %s",
+                            attempt,
+                            SEGMENT_DOWNLOAD_MAX_ATTEMPTS,
+                            route_id,
+                            segment_id,
+                            retry_delay,
+                            error,
+                            exc_info=True,
+                        )
+                        await route_service.set_download_retry(
+                            route_id,
+                            {
+                                "segment_id": segment_id,
+                                "attempt": attempt + 1,
+                                "max_attempts": SEGMENT_DOWNLOAD_MAX_ATTEMPTS
+                            },
+                        )
+                        await session.commit()
+                        await asyncio.sleep(retry_delay)
             except Exception as error:
+                await route_service.set_download_retry(route_id, None)
                 details = describe_download_failure(error)
                 message = f"Segment {segment_id}: {details['message']}"
                 failures[segment_id] = message
@@ -444,6 +499,7 @@ async def process_route(
                     ),
                 )
             else:
+                await route_service.set_download_retry(route_id, None)
                 await segment_service.set_status(
                     route_id=route_id,
                     segment_id=segment_id,
@@ -502,6 +558,7 @@ async def process_route(
             },
         )
     except Exception as error:
+        await route_service.set_download_retry(route_id, None)
         details = describe_download_failure(error)
         logger.exception("Could not process route %s", route_id)
         shutil.rmtree(data_dir, ignore_errors=True)

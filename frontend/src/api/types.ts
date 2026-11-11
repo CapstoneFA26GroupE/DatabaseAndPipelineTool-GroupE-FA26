@@ -28,12 +28,20 @@ export const ROUTE_TERMINAL_STATUSES: RouteStatus[] = ["uploaded", "failed"];
 export const SEGMENT_TERMINAL_STATUSES: SegmentStatus[] = ["uploaded", "failed"];
 export const JOB_TERMINAL_STATUSES: JobStatus[] = ["succeeded", "failed", "cancelled"];
 
+export interface DownloadRetry {
+  segment_id: number;
+  attempt: number;
+  max_attempts: number;
+}
+
+
 export interface RouteResponse {
   route_id: string;
   file_path: string | null;
   status: RouteStatus;
   created_at: string;
   download_error?: { code: string; message: string } | null;
+  download_retry?: DownloadRetry | null;
 }
 
 export interface SegmentResponse {
@@ -69,6 +77,7 @@ export interface Route {
   createdAt: string;
   status: RouteStatus;
   downloadError?: string | null;
+  downloadRetry: DownloadRetry | null;
 }
 
 export interface Segment {
@@ -220,6 +229,7 @@ export function mapRoute(r: RouteResponse): Route {
     createdAt: r.created_at,
     status: r.status,
     downloadError: r.download_error?.message ?? null,
+    downloadRetry: r.download_retry ?? null,
   };
 }
 

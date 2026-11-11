@@ -82,6 +82,12 @@ export function RouteDetailHeader({
           {" To retry, delete the failed route and import it again after fixing the cause."}
         </p>
       )}
+      {route.downloadRetry && route.status === "downloading" && (
+        <p role="status" aria-live="polite">
+          Retrying segment {route.downloadRetry.segment_id}: attempt{" "}
+          {route.downloadRetry.attempt} of {route.downloadRetry.max_attempts}
+        </p>
+      )}
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-4)", flexWrap: "wrap", marginBottom: "var(--space-2)" }}>
         <h1 style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-on-inverse)", letterSpacing: "-0.01em", margin: 0 }}>
