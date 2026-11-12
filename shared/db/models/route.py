@@ -45,5 +45,19 @@ class Route(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+    # Why this route failed (or a warning, e.g. some segments failed). Shown in the UI.
+    error: Mapped[str | None] = mapped_column(
+        String,
+        nullable=True,
+    )
     def __repr__(self):
         return f"Route({self.route_id}, {self.file_path}, {self.status})"
+
+    @property
+    def download_error(self) -> dict | None:
+        return (self.meta or {}).get('download_error')
+
+    #Added property for download retry attempts
+    @property
+    def download_retry(self) -> dict | None:
+        return (self.meta or {}).get("download_retry")
