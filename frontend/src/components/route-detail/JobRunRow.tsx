@@ -9,7 +9,7 @@ import { DeleteJobRunButton } from "./DeleteJobRunButton";
 import { RequeueJobRunButton } from "./RequeueJobRunButton";
 import { FailureReason } from "../FailureReason";
 
-export function JobRunRow({ jobRun }: { jobRun: JobRun }) {
+export function JobRunRow({ jobRun, exportIntersectionTypes }: { jobRun: JobRun; exportIntersectionTypes?: string[] | null }) {
   const color = STATUS_COLOR[jobRun.status as keyof typeof STATUS_COLOR] ?? "var(--text-secondary)";
   const label = STATUS_LABEL[jobRun.status as keyof typeof STATUS_LABEL] ?? jobRun.status;
   const isActive = jobRun.status === "queued" || jobRun.status === "running";
@@ -68,11 +68,13 @@ export function JobRunRow({ jobRun }: { jobRun: JobRun }) {
         jobRunNum={jobRun.jobRunNum}
         camera={jobRun.camera}
         jobSucceeded={jobRun.status === "succeeded"}
+        intersectionTypes={exportIntersectionTypes}
       />
       {supportsDepth && depthRun && jobRun.status === "succeeded" && <ExportJobRunButton
         routeId={jobRun.routeId} jobDefId={jobRun.jobDefId} jobRunNum={jobRun.jobRunNum}
         camera={jobRun.camera} jobSucceeded={true}
         companionDepth={{ jobDefId: depthRun.jobDefId, jobRunNum: depthRun.jobRunNum, camera: depthRun.camera }}
+        intersectionTypes={exportIntersectionTypes}
       />}
     </div>
   );

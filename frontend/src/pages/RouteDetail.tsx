@@ -10,6 +10,14 @@ import { SEG_STATUS_CONFIG, DEFAULT_SEG_CFG } from "../utils/segmentStatusConfig
 import { RouteDetailHeader } from "../components/route-detail/RouteDetailHeader";
 import { SegmentCard } from "../components/route-detail/SegmentCard";
 import type { Segment } from "../api/types";
+import { getIntersectionSummary } from "../api/intersections";
+import { IntersectionPanel } from "../components/route-detail/IntersectionPanel";
+import {
+  EXPORT_INTERSECTION_FILTERS,
+  SEGMENT_INTERSECTION_FILTERS,
+  segmentMatchesIntersectionFilter,
+} from "../utils/intersectionConfig";
+import type { SegmentIntersectionFilter } from "../utils/intersectionConfig";
 type SegFilterStatus = SegmentStatus | "all";
 type SegSortKey = "index" | "status";
 
@@ -20,6 +28,9 @@ export default function RouteDetail() {
 
   const [statusFilter, setStatusFilter] = useState<SegFilterStatus>("all");
   const [sortBy, setSortBy] = useState<SegSortKey>("index");
+  // intersection filters: which segments to show, and which frames the export buttons include
+  const [intersectionFilter, setIntersectionFilter] = useState<SegmentIntersectionFilter>("all");
+  const [exportFilter, setExportFilter] = useState("all");
 
   const { data: route, isLoading: routeLoading, error: routeError } = useRouteStatus(decodedRouteId || undefined);
 
@@ -34,6 +45,15 @@ const { data: allSegments = [], isLoading: segsLoading } = useQuery<Segment[]>({
   });
 
   const { data: jobRuns = [] } = useJobRunsForRoute(decodedRouteId || undefined);
+
+  // this loads the route's intersection labels, polling while they are still being made
+  const { data: intersections } = useQuery({
+    queryKey: ["intersections", decodedRouteId],
+    queryFn: () => getIntersectionSummary(decodedRouteId),
+    enabled: !!decodedRouteId,
+    refetchInterval: (query) => (query.state.data?.status === "done" || query.state.data?.status === "failed" ? false : 5000),
+  });
+  const exportIntersectionTypes = EXPORT_INTERSECTION_FILTERS.find((f) => f.value === exportFilter)?.types ?? null;
 
   const loading = routeLoading || segsLoading;
   const error = routeError ? (routeError as Error).message ?? "Failed to load route" : null;
@@ -57,13 +77,15 @@ const { data: allSegments = [], isLoading: segsLoading } = useQuery<Segment[]>({
 });
 
   const segments = useMemo(() => {
-    const filtered = allSegments.filter((s) => statusFilter === "all" || s.status === statusFilter);
+    const filtered = allSegments
+      .filter((s) => statusFilter === "all" || s.status === statusFilter)
+      .filter((s) => segmentMatchesIntersectionFilter(intersections?.segmentCounts[s.segmentId], intersectionFilter));
     return [...filtered].sort((a, b) => {
       if (sortBy === "index") return a.index - b.index;
       if (sortBy === "status") return a.status.localeCompare(b.status);
       return 0;
     });
-  }, [allSegments, statusFilter, sortBy]);
+  }, [allSegments, statusFilter, sortBy, intersections, intersectionFilter]);
 
   if (loading) {
     return (
@@ -103,6 +125,14 @@ const { data: allSegments = [], isLoading: segsLoading } = useQuery<Segment[]>({
         isPolling={isPolling}
         onBack={() => navigate("/routes")}
         onDeleted={() => navigate("/routes")}
+        exportIntersectionTypes={exportIntersectionTypes}
+      />
+
+      <IntersectionPanel
+        routeId={route.id}
+        summary={intersections}
+        exportFilter={exportFilter}
+        onExportFilterChange={setExportFilter}
       />
 
       <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-5)", marginBottom: "var(--space-4)", flexWrap: "wrap" }}>
@@ -127,6 +157,18 @@ const { data: allSegments = [], isLoading: segsLoading } = useQuery<Segment[]>({
           <option value="index">Sort: Index</option>
           <option value="status">Sort: Status</option>
         </select>
+        <select
+          aria-label="Intersection filter"
+          value={intersectionFilter}
+          onChange={(e) => setIntersectionFilter(e.target.value as SegmentIntersectionFilter)}
+          disabled={intersections?.status !== "done"}
+          title={intersections?.status === "done" ? "Show segments by the intersections in them" : "Available once the route's frames are labeled"}
+          style={{ padding: "var(--space-2) var(--space-3)", border: "1px solid var(--border-subtle)", backgroundColor: "var(--bg-surface)", fontSize: "var(--text-sm)", color: "var(--text-primary)", outline: "none", cursor: intersections?.status === "done" ? "pointer" : "not-allowed" }}
+        >
+          {SEGMENT_INTERSECTION_FILTERS.map((f) => (
+            <option key={f.value} value={f.value}>{f.label}</option>
+          ))}
+        </select>
       </div>
 
       <div style={{ fontSize: "10px", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.09em", fontWeight: 600, marginBottom: "var(--space-4)" }}>
@@ -148,6 +190,7 @@ const { data: allSegments = [], isLoading: segsLoading } = useQuery<Segment[]>({
                 ...seg,
                 frameCount: frameCounts[seg.segmentId] ?? 0,
               }}
+              intersectionCounts={intersections?.segmentCounts[seg.segmentId]}
             />
           ))}
         </div>

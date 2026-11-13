@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Integer, DateTime, func, ForeignKeyConstraint, JSON
+from sqlalchemy import BigInteger, Index, Integer, DateTime, String, func, ForeignKeyConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db.base import Base
@@ -19,6 +19,8 @@ class Frame(Base):
             ["segments.route_id", "segments.segment_id"],
             ondelete="CASCADE",
         ),
+        # this index makes "frames of this route with this intersection label" lookups fast
+        Index("ix_frames_route_intersection_type", "route_id", "intersection_type"),
     )
 
     frame_pk: Mapped[int] = mapped_column(
@@ -60,6 +62,17 @@ class Frame(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
+    )
+    # intersection label set by the intersection_worker after upload:
+    # signalized_intersection, unsignalized_intersection, non_intersection or unknown (no gps)
+    intersection_type: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
+    # why the frame got its label: nearest intersection, distance, map/camera evidence, confidence
+    intersection_details: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
     )
 
     def __repr__(self):

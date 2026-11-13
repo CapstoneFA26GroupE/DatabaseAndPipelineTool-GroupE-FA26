@@ -182,7 +182,7 @@ chmod +x ./scripts/setup_cvat.sh
 ```
 6. Start the cvat workers with 
 ```bash
-docker compose up --build -d cvat_worker cvat_import_export_worker
+docker compose up --build -d cvat_worker cvat_import_export_worker intersection_worker
 ```
 7. Start the frontend with
 ```bash
@@ -273,6 +273,41 @@ Expected errors are defined in `shared/services/errors.py`. Every error subclass
 - **Audit log:** every change made through the API (including failed attempts) and every worker outcome is recorded in the `audit_logs` table, shown on the **Activity** page and available at `GET /audit-logs/`. The API records actions automatically (`backend/api/audit.py`); in a worker, call `configure_audit(SessionLocal, source="<worker>")` once and `record_audit(...)` for outcomes (`shared/services/audit_service.py`).
 - **Migrations:** the `error` columns (`c4e1a9b27d53`) and the `audit_logs` table (`d7f3b2e8a1c4`). To apply them to an existing database, run `docker compose up --build alembic_worker`.
 - In the frontend, `apiFetch` throws an `ApiError` with `code`, `hint` and `requestId`. Failed mutations show a toast automatically (set `meta: { errorTitle: "Could not ..." }` for a clear title, or `meta: { inlineError: true }` if the component shows the error itself with `<ErrorNotice />`).
+
+## Intersection Labels
+
+Every frame of an uploaded route is labeled **signalized intersection**, **unsignalized intersection**
+or **non-intersection** (or **unknown** when the frame has no GPS fix), so training images can be pulled
+by intersection type. This runs automatically in the `intersection_worker` container once a route is
+uploaded; already uploaded routes are labeled when the worker starts.
+
+How a frame is labeled:
+
+1. Its GPS position is read from the segment's `logs.json` (openpilot's `positionGeodetic`).
+2. Road intersections near the route come from OpenStreetMap (Overpass API): a node where 3 or more
+   drivable road branches meet; freeway ramp merges, driveways and parking lots are ignored; junction
+   nodes within 25 m are merged into one intersection.
+3. A frame within 30 m of an intersection gets that intersection's label; others are non-intersection.
+4. An intersection is **signalized** if OpenStreetMap has a traffic signal within 40 m. A camera check
+   then runs the RT-DETR detection model on ~6 frames of the approach: lights seen confirm it, and lights
+   seen at an intersection with no mapped signal make it signalized (the map is missing it).
+
+Where to find the labels:
+
+- **Route page → Intersections panel:** frame counts per label, a Re-run button, and an
+  *Export frames* filter used by the job run Export buttons.
+- **Route page segment filter:** show only segments with signalized / unsignalized / any intersection.
+- **Segment page → Intersections:** a timeline of the segment and why each part got its label.
+- **API:** `GET /intersections/summary?route_id=`, `GET /intersections/frames?route_id=&segment_id=&intersection_type=`,
+  `POST /intersections/reclassify?route_id=`, and `intersection_types` on `POST /dataset-exports/`.
+- **Exports:** every export includes `intersection_labels.json` (label of every frame); a filtered export
+  only contains matching images, and its COCO / depth files only reference those images.
+
+Settings (environment variables on `intersection_worker`): `INTERSECTION_RADIUS_M` (30),
+`INTERSECTION_APPROACH_M` (60), `INTERSECTION_SIGNAL_SEARCH_M` (40), `INTERSECTION_CAMERA_CHECK` (true),
+`INTERSECTION_CAMERA_SAMPLES` (6), `OVERPASS_URL`. The code is in `shared/intersections/`, the worker in
+`intersection_worker/`, and the database columns come from migration `e5b2d9c4a7f1`. Problems are
+covered in the [Error Guide](./docs/ERROR_GUIDE.md#intersection-labels).
 
 ## Testing
 

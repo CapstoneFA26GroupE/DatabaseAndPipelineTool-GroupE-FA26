@@ -129,6 +129,22 @@ services:
     volumes:
       - "./data_exports:/app/data_exports"
 
+  # labels every uploaded route's frames as signalized / unsignalized / non-intersection
+  intersection_worker:
+    build:
+      context: .
+      dockerfile: intersection_worker/Dockerfile
+    environment:
+      <<: *python-service-env
+      # set to "false" to label from map data only (faster, no camera model)
+      INTERSECTION_CAMERA_CHECK: "true"
+      OVERPASS_URL: "https://overpass-api.de/api/interpreter"
+    volumes:
+      - mila_osm_cache:/app/osm_cache
+      - mila_model_cache:/root/.cache/huggingface
+    depends_on:
+      - postgres
+
   minio_initializer:
     build:
       context: .
@@ -198,3 +214,4 @@ networks:
 
 volumes:
   mila_model_cache:
+  mila_osm_cache:

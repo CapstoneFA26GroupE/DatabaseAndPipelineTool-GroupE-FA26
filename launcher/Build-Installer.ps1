@@ -6,7 +6,7 @@ $root = Split-Path $PSScriptRoot -Parent
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('mila-package-' + [Guid]::NewGuid().ToString('N') + '.zip')
-$directories = @('alembic_worker', 'backend', 'cvat_import_export_worker', 'cvat_worker', 'dataset_export_worker', 'frontend', 'launcher', 'minio_initializer', 'open_pilot_download_worker', 'open_pilot_upload_worker', 'scripts', 'shared', 'tests')
+$directories = @('alembic_worker', 'backend', 'cvat_import_export_worker', 'cvat_worker', 'dataset_export_worker', 'frontend', 'intersection_worker', 'launcher', 'minio_initializer', 'open_pilot_download_worker', 'open_pilot_upload_worker', 'scripts', 'shared', 'tests')
 $rootFiles = @('.example_env', '.gitignore', 'docker-compose.yaml', 'docker-compose.cvat.yml', 'docker-compose.cvat.windows.yml', 'docker-compose.gpu.yml', 'MiLa-Launcher.exe', 'pyproject.toml', 'pyrightconfig.json', 'README.md', 'requirements.txt', 'Start-MiLa.cmd', 'Start-MiLa-GUI.cmd')
 $files = @($rootFiles | ForEach-Object { Get-Item -LiteralPath (Join-Path $root $_) })
 foreach ($directory in $directories) {

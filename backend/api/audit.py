@@ -35,6 +35,7 @@ API_ACTIONS: dict[str, tuple[str, str]] = {
     "create_dataset_export": ("dataset_export.create", "dataset_export"),
     "delete_dataset_export": ("dataset_export.delete", "dataset_export"),
     "restart_cvat_server": ("cvat.restart", "cvat_server"),
+    "reclassify_route_intersections": ("intersections.reclassify", "route"),
 }
 
 ID_FIELDS = ("route_id", "job_def_id", "job_run_num", "camera", "segment_id", "export_id")

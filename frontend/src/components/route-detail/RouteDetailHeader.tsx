@@ -36,6 +36,7 @@ export function RouteDetailHeader({
   isPolling,
   onBack,
   onDeleted,
+  exportIntersectionTypes,
 }: {
   route: Route;
   segments: Segment[];
@@ -43,6 +44,8 @@ export function RouteDetailHeader({
   isPolling: boolean;
   onBack: () => void;
   onDeleted?: () => void;
+  // which intersection labels the export buttons include (chosen in the intersections panel)
+  exportIntersectionTypes?: string[] | null;
 }) {
   const [deleting, setDeleting] = useState(false);
 
@@ -165,7 +168,7 @@ export function RouteDetailHeader({
         {jobRuns.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
             {jobRuns.map((jr) => (
-              <JobRunRow key={`${jr.jobRunNum}-${jr.jobDefId}`} jobRun={jr} />
+              <JobRunRow key={`${jr.jobRunNum}-${jr.jobDefId}`} jobRun={jr} exportIntersectionTypes={exportIntersectionTypes} />
             ))}
           </div>
         )}

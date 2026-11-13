@@ -34,6 +34,11 @@
   --accent-caution: #D97706; /* Warnings, annotating / in-progress    */
   --accent-alert:   #DC2626; /* Errors, failed segments               */
   --accent-cvat:    #6D28D9; /* CVAT-related actions                  */
+  /* intersection labels (sprint 3 ticket 3) */
+  --intersection-signalized:   #2563EB; /* frames at a signalized intersection   */
+  --intersection-unsignalized: #D97706; /* frames at an unsignalized intersection */
+  --intersection-none:         #9CA3AF; /* frames away from intersections          */
+  --intersection-unknown:      #E5E7EB; /* frames with no gps position             */
   --accent-postgres: #336791; /* PostgreSQL brand color               */
   --accent-link:    #111111; /* Interactive text (underlined)         */
 

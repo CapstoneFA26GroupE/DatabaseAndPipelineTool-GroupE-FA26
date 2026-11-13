@@ -37,6 +37,7 @@ from api.routers.job_definitions import job_definitions_router
 from api.routers.job_segment_run import job_segment_run_router
 from api.routers.cvat import cvat_router
 from api.routers.audit_logs import audit_logs_router
+from api.routers.intersections import intersections_router
 
 configure_api_logging()
 logger = logging.getLogger("api")
@@ -180,3 +181,4 @@ app.include_router(router=job_segment_run_router)
 app.include_router(router=dataset_exports_router)
 app.include_router(router=cvat_router)
 app.include_router(router=audit_logs_router)
+app.include_router(router=intersections_router)

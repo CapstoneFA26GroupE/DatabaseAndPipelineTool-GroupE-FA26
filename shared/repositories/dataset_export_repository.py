@@ -50,11 +50,13 @@ class DatasetExportRepository:
         route_id: str,
         camera_views: list[str],
         status: DatasetExportStatus,
+        intersection_types: list[str] | None = None,
     ) -> DatasetExport:
         dataset_export = DatasetExport(
             route_id=route_id,
             camera_views=camera_views,
             status=status,
+            intersection_types=intersection_types,
         )
         self._session.add(dataset_export)
         await self._session.flush()

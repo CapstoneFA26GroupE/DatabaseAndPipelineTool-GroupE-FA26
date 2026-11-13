@@ -91,6 +91,19 @@ class RouteService:
     
 
 
+    async def set_intersection_status(self, route_id: str, status: dict | None) -> Route:
+        # this stores the intersection labeling status (pending/running/done/failed + counts) in the route's meta
+        route = await self._route_repository.get_by_id(route_id)
+        if route is None:
+            raise RouteNotFoundError(route_id)
+        meta = dict(route.meta or {})
+        if status is None:
+            meta.pop("intersections", None)
+        else:
+            meta["intersections"] = status
+        route.meta = meta
+        return await self._route_repository.save(route)
+
     async def delete_route(self, route_id: str) -> None:
         route = await self._route_repository.get_by_id(route_id)
         if route is None:

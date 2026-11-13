@@ -65,7 +65,7 @@ try {
         if ($command -match 'network ls') { return 'cvat_network' }
         if ($command -match 'ps --all --format json') { return $script:containerStatus }
         if ($command -match 'ps --status running') {
-            return "backend`nfrontend`nopen_pilot_download_worker`nopen_pilot_upload_worker`ndataset_export_worker`ncvat_worker`ncvat_import_export_worker"
+            return "backend`nfrontend`nopen_pilot_download_worker`nopen_pilot_upload_worker`ndataset_export_worker`ncvat_worker`ncvat_import_export_worker`nintersection_worker"
         }
         if ($script:failMigration -and $command -match 'run .*alembic_worker') { throw 'simulated migration failure' }
         return ''

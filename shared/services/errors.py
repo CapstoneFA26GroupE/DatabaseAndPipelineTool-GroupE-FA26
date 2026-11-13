@@ -546,3 +546,52 @@ class InvalidAuditFilterError(PipelineError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
+
+
+# ─── Intersection classification ─────────────────────────────────────────────
+
+class MapDataUnavailableError(PipelineError):
+    code = "MAP_DATA_UNAVAILABLE"
+    status_code = HTTP_503_SERVICE_UNAVAILABLE
+    hint = (
+        "Road data from OpenStreetMap (Overpass API) could not be downloaded. Check the internet "
+        "connection, wait a few minutes (the public server limits requests), then use Re-run on the "
+        "route's Intersections panel. OVERPASS_URL can point to another Overpass server."
+    )
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
+class IntersectionsNotReadyError(ConflictError):
+    code = "INTERSECTIONS_NOT_READY"
+    hint = (
+        "This route's frames have not been labeled yet. Wait for the Intersections panel on the route "
+        "page to show Done (it runs automatically after upload), or use Re-run if it failed."
+    )
+
+    def __init__(self, route_id: str, status: str) -> None:
+        super().__init__(
+            f"Intersection labels for route {route_id} are not ready (status: {status})",
+            context={"route_id": route_id, "status": status},
+        )
+
+
+class InvalidIntersectionTypeError(PipelineError):
+    code = "INVALID_INTERSECTION_TYPE"
+    status_code = HTTP_400_BAD_REQUEST
+    hint = (
+        "Use one of: signalized_intersection, unsignalized_intersection, non_intersection "
+        "(and unknown when filtering frames)."
+    )
+
+    def __init__(self, value: str) -> None:
+        super().__init__(f"Unknown intersection type '{value}'", context={"value": value})
+
+
+class IntersectionsBusyError(ConflictError):
+    code = "INTERSECTIONS_RUNNING"
+    hint = "The route is being labeled right now. Wait for it to finish, then re-run if needed."
+
+    def __init__(self, route_id: str) -> None:
+        super().__init__(f"Intersection labeling for route {route_id} is already running", context={"route_id": route_id})

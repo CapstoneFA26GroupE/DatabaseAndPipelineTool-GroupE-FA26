@@ -13,7 +13,10 @@ from repositories.job_run_repository import JobRunRepository
 from repositories.route_repository import RouteRepository
 from services.frame_service import FrameService
 from services.minio_service import MinioService
+from intersections.labels import ALL_TYPES as ALL_INTERSECTION_TYPES
 from services.errors import (
+    IntersectionsNotReadyError,
+    InvalidIntersectionTypeError,
     ArtifactNotFoundError,
     DatasetExportDeletionConflictError,
     DatasetExportNotFoundError,
@@ -77,6 +80,7 @@ class DatasetExportService:
         route_id: str,
         camera_views: list[CameraType],
         job_runs: list[tuple[int, int, CameraType]],
+        intersection_types: list[str] | None = None,
     ) -> DatasetExport:
         logger.info(
             "Creating dataset export route_id=%s camera_views=%s job_runs=%s",
@@ -95,6 +99,17 @@ class DatasetExportService:
 
         if not camera_views:
             raise DatasetExportValidationError("camera_views must contain at least one camera")
+
+        # this block checks the intersection filter: known labels only, and the route must already be labeled
+        if intersection_types:
+            for value in intersection_types:
+                if value not in ALL_INTERSECTION_TYPES:
+                    raise InvalidIntersectionTypeError(value)
+            if len(set(intersection_types)) != len(intersection_types):
+                raise DatasetExportValidationError("intersection_types must not contain duplicates")
+            labeling_status = (route.intersections or {}).get("status", "pending")
+            if labeling_status != "done":
+                raise IntersectionsNotReadyError(route_id, labeling_status)
 
         unique_camera_views = {camera_view.value for camera_view in camera_views}
         if len(unique_camera_views) != len(camera_views):
@@ -136,6 +151,7 @@ class DatasetExportService:
             route_id=route_id,
             camera_views=[camera_view.value for camera_view in camera_views],
             status=DatasetExportStatus.QUEUED,
+            intersection_types=list(intersection_types) if intersection_types else None,
         )
 
         for job_def_id, job_run_num, camera in validated_job_runs:

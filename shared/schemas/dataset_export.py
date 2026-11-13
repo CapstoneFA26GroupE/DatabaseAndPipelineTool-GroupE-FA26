@@ -16,6 +16,8 @@ class CreateDatasetExportRequest(BaseModel):
     route_id: str
     camera_views: list[CameraType]
     job_runs: list[DatasetExportJobRunSelection]
+    # only export frames with these intersection labels, e.g. ["signalized_intersection"]; None exports every frame
+    intersection_types: list[str] | None = None
 
 
 class DatasetExportJobRunSelectionResponse(BaseModel):
@@ -38,4 +40,5 @@ class DatasetExportResponse(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     zip_artifact_id: UUID | None
+    intersection_types: list[str] | None = None
     job_runs: list[DatasetExportJobRunSelectionResponse]

@@ -18,6 +18,7 @@ interface DatasetExportResponse {
   started_at: string | null;
   finished_at: string | null;
   zip_artifact_id: string | null;
+  intersection_types?: string[] | null;
   job_runs: DatasetExportJobRunSelectionResponse[];
 }
 
@@ -31,6 +32,8 @@ export interface DatasetExport {
   startedAt: string | null;
   finishedAt: string | null;
   zipArtifactId: string | null;
+  // null means every frame was exported
+  intersectionTypes: string[] | null;
   jobRuns: { jobDefId: number; jobRunNum: number; camera: string }[];
 }
 
@@ -45,6 +48,7 @@ function mapDatasetExport(r: DatasetExportResponse): DatasetExport {
     startedAt: r.started_at,
     finishedAt: r.finished_at,
     zipArtifactId: r.zip_artifact_id,
+    intersectionTypes: r.intersection_types ?? null,
     jobRuns: r.job_runs.map((j) => ({
       jobDefId: j.job_def_id,
       jobRunNum: j.job_run_num,
@@ -64,6 +68,7 @@ export async function createDatasetExport(payload: {
   routeId: string;
   cameraViews: string[];
   jobRuns: { jobDefId: number; jobRunNum: number; camera: string }[];
+  intersectionTypes?: string[] | null;
 }): Promise<DatasetExport> {
   const data = await apiFetch<DatasetExportResponse>("/dataset-exports/", {
     method: "POST",
@@ -75,6 +80,7 @@ export async function createDatasetExport(payload: {
         job_run_num: j.jobRunNum,
         camera: j.camera,
       })),
+      intersection_types: payload.intersectionTypes ?? null,
     }),
   });
   return mapDatasetExport(data);

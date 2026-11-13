@@ -238,6 +238,45 @@ The export doesn't exist (it may have been deleted).
 A running export can't be deleted.
 **Fix:** wait until it is SUCCEEDED or FAILED, then delete it.
 
+### Intersection labels
+
+Every uploaded route's frames are labeled automatically by the `intersection_worker` as a
+**signalized intersection**, an **unsignalized intersection** or a **non-intersection** (see the
+*Intersections* panel on the route page). How it works: each frame's GPS position is matched to road
+intersections from OpenStreetMap; a mapped traffic signal makes an intersection signalized; a few frames
+per intersection are also checked for traffic lights with the detection model, which confirms the map
+and catches signals the map is missing.
+
+#### MAP_DATA_UNAVAILABLE
+Road data from OpenStreetMap (the public Overpass API) could not be downloaded, so the route could not
+be labeled.
+**Fix:** check the internet connection, wait a few minutes (the public server limits how often it can
+be called), then click **Re-run** on the route's *Intersections* panel. To use another Overpass server,
+set `OVERPASS_URL` for `intersection_worker` in `docker-compose.yaml`. Map data is cached in the
+`mila_osm_cache` volume, so each area is only downloaded once.
+
+#### INTERSECTIONS_NOT_READY
+An export filtered by intersection label was requested before the route's frames were labeled.
+**Fix:** wait until the *Intersections* panel shows **Done** (labeling starts automatically after upload;
+check that `intersection_worker` is running with `docker compose ps`), or click **Re-run** if it failed.
+
+#### INTERSECTIONS_RUNNING
+*Re-run* was clicked while the route is being labeled.
+**Fix:** wait for it to finish, then re-run if needed.
+
+#### INVALID_INTERSECTION_TYPE
+An unknown label was sent to the API.
+**Fix:** use `signalized_intersection`, `unsignalized_intersection`, `non_intersection` or `unknown`.
+
+**Other intersection problems**
+
+| What you see | Why | Fix |
+|---|---|---|
+| Panel stays on *Queued* | `intersection_worker` isn't running | `docker compose up --build -d intersection_worker`, then `docker compose logs intersection_worker` |
+| Many frames are *Unknown* | Those frames have no GPS fix in openpilot's log (common in the first seconds of a drive or in tunnels) | Nothing to fix; they are left out rather than guessed |
+| "Camera check skipped" warning | The detection model could not load (e.g. no internet for the first download) | Labels still use map data. Fix the model download, then **Re-run**. Set `INTERSECTION_CAMERA_CHECK: "false"` to turn the camera check off |
+| A label looks wrong | GPS drift near parallel roads or overpasses, or missing/incorrect OpenStreetMap data | Each label shows its reason and confidence on the segment page; tune `INTERSECTION_RADIUS_M` (default 30 m) or fix the map at openstreetmap.org, then **Re-run** |
+
 ### Audit log
 
 #### INVALID_AUDIT_FILTER

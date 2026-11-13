@@ -4,8 +4,24 @@ import { formatOffset, formatDuration } from "../../utils/formatters";
 import { SegmentThumbnail } from "./SegmentThumbnail";
 import { SegStatusBadge } from "./SegStatusBadge";
 import { FailureReason } from "../FailureReason";
+import type { IntersectionType } from "../../api/intersections";
+import { INTERSECTION_STYLE, INTERSECTION_TYPES } from "../../utils/intersectionConfig";
 
-export function SegmentCard({ segment, onClick }: { segment: Segment; onClick: () => void }) {
+export function SegmentCard({
+  segment,
+  onClick,
+  intersectionCounts,
+}: {
+  segment: Segment;
+  onClick: () => void;
+  // frames per intersection label in this segment (missing until the route is labeled)
+  intersectionCounts?: Partial<Record<IntersectionType, number>>;
+}) {
+  const intersectionTotal = INTERSECTION_TYPES.reduce((sum, t) => sum + (intersectionCounts?.[t] ?? 0), 0);
+  const intersectionTitle = INTERSECTION_TYPES.filter((t) => (intersectionCounts?.[t] ?? 0) > 0)
+    .map((t) => `${INTERSECTION_STYLE[t].short}: ${intersectionCounts?.[t]} frames`)
+    .join(" · ");
+
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -38,6 +54,14 @@ export function SegmentCard({ segment, onClick }: { segment: Segment; onClick: (
           <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-secondary)" }}>{formatDuration(segment.durationSeconds)}</span>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-muted)" }}>{segment.frameCount.toLocaleString()} fr</span>
         </div>
+        {/* this thin bar shows how much of the segment is at signalized / unsignalized intersections */}
+        {intersectionTotal > 0 && (
+          <div title={intersectionTitle} aria-label={`Intersections: ${intersectionTitle}`} style={{ display: "flex", height: "4px", width: "100%", overflow: "hidden", backgroundColor: "var(--intersection-unknown)" }}>
+            {INTERSECTION_TYPES.filter((t) => (intersectionCounts?.[t] ?? 0) > 0).map((t) => (
+              <div key={t} style={{ width: `${(100 * (intersectionCounts?.[t] ?? 0)) / intersectionTotal}%`, backgroundColor: INTERSECTION_STYLE[t].color }} />
+            ))}
+          </div>
+        )}
         {segment.status === "failed" && segment.error ? (
           // The card is clickable, so show the reason as one line with a tooltip
           <FailureReason text={segment.error} variant="compact" maxWidth="100%" />

@@ -61,3 +61,8 @@ class Route(Base):
     @property
     def download_retry(self) -> dict | None:
         return (self.meta or {}).get("download_retry")
+
+    # status of the intersection labeling for this route, kept in meta by the intersection_worker
+    @property
+    def intersections(self) -> dict | None:
+        return (self.meta or {}).get("intersections")

@@ -255,7 +255,7 @@ print('CVAT account ready.')
 
         Write-Host '[4/5] Starting application and processing workers (first build can take a long time)...'
         $services = @('backend', 'open_pilot_download_worker', 'open_pilot_upload_worker',
-            'dataset_export_worker', 'cvat_worker', 'cvat_import_export_worker', 'frontend')
+            'dataset_export_worker', 'cvat_worker', 'cvat_import_export_worker', 'intersection_worker', 'frontend')
         $upArgs = @('up', '-d')
         if ($Rebuild) { $upArgs += '--build' } else { $upArgs += '--no-recreate' }
         Invoke-Native docker ($compose + $upArgs + $services)

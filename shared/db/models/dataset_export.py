@@ -35,6 +35,11 @@ class DatasetExport(Base):
         String,
         nullable=True,
     )
+    # when set, only frames with these intersection labels are exported (None exports every frame)
+    intersection_types: Mapped[list[str] | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
     queued_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

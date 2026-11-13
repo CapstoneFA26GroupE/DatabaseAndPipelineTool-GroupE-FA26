@@ -6,6 +6,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from utilities.depth_archive import extract_depth_archive
 from utilities.depth_label_links import link_depth_to_coco
+from utilities.intersection_export import (
+    LABELS_FILE_NAME,
+    filter_job_outputs_to_frames,
+    write_intersection_labels,
+)
+from repositories.intersection_repository import IntersectionRepository
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -85,13 +91,15 @@ async def _download_route_images(
     frame_artifact_service: FrameArtifactService,
     artifact_service: ArtifactService,
     minio_service: MinioService,
-) -> None:
+    allowed_frames: dict[int, set[int]] | None = None,
+) -> int:
     logger.info(
         "Downloading route images route_id=%s camera_views=%s",
         route_id,
         camera_views,
     )
     segments = await segment_service.get_segments_by_route(route_id=route_id)
+    downloaded = 0
 
     for segment in segments:
         for camera_view_str in camera_views:
@@ -119,6 +127,10 @@ async def _download_route_images(
             )
             camera_dir.mkdir(parents=True, exist_ok=True)
 
+            # this keeps only the frames matching the export's intersection filter (when there is one)
+            if allowed_frames is not None:
+                frames = [f for f in frames if f.frame_id in allowed_frames.get(segment.segment_id, set())]
+
             for frame in frames:
                 frame_artifact = await frame_artifact_service.get_frame_artifact(
                     frame_pk=frame.frame_pk,
@@ -137,6 +149,8 @@ async def _download_route_images(
 
                 image_path = camera_dir / f"{frame.frame_id}.png"
                 minio_service.download_artifact(artifact=artifact, dest_path=image_path)
+                downloaded += 1
+    return downloaded
 
 
 async def _download_route_logs(
@@ -244,12 +258,19 @@ def _write_manifest(
     export_id: int,
     camera_views: list[str],
     selected_job_runs: list[DatasetExportJobRun],
+    intersection_types: list[str] | None = None,
+    images_exported: int | None = None,
+    has_intersection_labels: bool = False,
 ) -> None:
     logger.info("Writing dataset export manifest export_id=%s", export_id)
     manifest = {
         "export_id": export_id,
         "route_id": route_id,
         "camera_views": camera_views,
+        # null means every frame was exported
+        "intersection_types": intersection_types,
+        "images_exported": images_exported,
+        "intersection_labels_file": LABELS_FILE_NAME if has_intersection_labels else None,
         "job_runs": [
             {
                 "job_def_id": selected_job_run.job_def_id,
@@ -311,7 +332,16 @@ async def _process_dataset_export(
             )
             link_depth_to_coco(export_root)
 
-            await _download_route_images(
+            # this block works out which frames match the intersection filter, and every frame's label
+            intersection_repository = IntersectionRepository(session)
+            intersection_types = dataset_export.intersection_types or None
+            allowed_frames = (
+                await intersection_repository.frame_ids_with_types(dataset_export.route_id, intersection_types)
+                if intersection_types else None
+            )
+            intersection_labels = await intersection_repository.labels_for_route(dataset_export.route_id)
+
+            images_exported = await _download_route_images(
                 route_id=dataset_export.route_id,
                 camera_views=dataset_export.camera_views,
                 export_root=export_root,
@@ -320,7 +350,13 @@ async def _process_dataset_export(
                 frame_artifact_service=frame_artifact_service,
                 artifact_service=artifact_service,
                 minio_service=minio_service,
+                allowed_frames=allowed_frames,
             )
+            if allowed_frames is not None:
+                removed = filter_job_outputs_to_frames(export_root, allowed_frames)
+                logger.info("Intersection filter %s removed %d job output entries", intersection_types, removed)
+            if intersection_labels:
+                write_intersection_labels(export_root, intersection_labels)
             await _download_route_logs(
                 route_id=dataset_export.route_id,
                 export_root=export_root,
@@ -335,6 +371,9 @@ async def _process_dataset_export(
                 export_id=dataset_export.export_id,
                 camera_views=dataset_export.camera_views,
                 selected_job_runs=selected_job_runs,
+                intersection_types=intersection_types,
+                images_exported=images_exported,
+                has_intersection_labels=bool(intersection_labels),
             )
 
             zip_path = temp_root / f"{dataset_export.export_id}.zip"

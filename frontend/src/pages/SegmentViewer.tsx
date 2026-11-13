@@ -12,6 +12,7 @@ import { SegmentHero } from "../components/segment-viewer/SegmentHero";
 import { SegmentThumbnailPanel } from "../components/segment-viewer/SegmentThumbnailPanel";
 import { SegmentStats } from "../components/segment-viewer/SegmentStats";
 import { SegmentNavigation } from "../components/segment-viewer/SegmentNavigation";
+import { IntersectionTimeline } from "../components/segment-viewer/IntersectionTimeline";
 
 export default function SegmentViewer() {
   const { routeId, segmentId } = useParams<{ routeId: string; segmentId: string }>();
@@ -90,6 +91,7 @@ export default function SegmentViewer() {
             imgErrored={imgErrored}
             onError={() => setImgErrored(true)}
           />
+          <IntersectionTimeline routeId={route.id} segmentId={segment.segmentId} />
           <CvatJobRunsList routeId={route.id} segmentId={segIdx} />
         </div>
 

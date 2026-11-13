@@ -3,3 +3,4 @@ requests
 pytest-asyncio
 minio
 psycopg2-binary
+aiosqlite

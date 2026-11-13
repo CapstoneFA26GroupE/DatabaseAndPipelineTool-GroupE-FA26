@@ -32,6 +32,7 @@ def _to_response(dataset_export, selected_job_runs) -> DatasetExportResponse:
         started_at=dataset_export.started_at,
         finished_at=dataset_export.finished_at,
         zip_artifact_id=dataset_export.zip_artifact_id,
+        intersection_types=dataset_export.intersection_types,
         job_runs=[
             DatasetExportJobRunSelectionResponse(
                 job_def_id=selected_job_run.job_def_id,
@@ -99,6 +100,7 @@ async def create_dataset_export(
             (job_run.job_def_id, job_run.job_run_num, job_run.camera)
             for job_run in payload.job_runs
         ],
+        intersection_types=payload.intersection_types,
     )
     selected_job_runs = await dataset_export_service.get_selected_job_runs(
         dataset_export.export_id

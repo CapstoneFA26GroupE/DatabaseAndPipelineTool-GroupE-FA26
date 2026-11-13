@@ -43,9 +43,18 @@ interface Props {
   camera: string;
   jobSucceeded: boolean;
   companionDepth?: { jobDefId: number; jobRunNum: number; camera: string };
+  // only export frames with these intersection labels (null/undefined exports every frame)
+  intersectionTypes?: string[] | null;
 }
 
-export function ExportJobRunButton({ routeId, jobDefId, jobRunNum, camera, jobSucceeded, companionDepth }: Props) {
+// this compares two intersection filters (null and [] both mean "all frames")
+function sameIntersectionFilter(a: string[] | null | undefined, b: string[] | null | undefined): boolean {
+  const left = [...(a ?? [])].sort().join(",");
+  const right = [...(b ?? [])].sort().join(",");
+  return left === right;
+}
+
+export function ExportJobRunButton({ routeId, jobDefId, jobRunNum, camera, jobSucceeded, companionDepth, intersectionTypes }: Props) {
   if (!camera) return null;
   const queryClient = useQueryClient();
   const queryKey = ["dataset-exports", routeId];
@@ -65,9 +74,11 @@ export function ExportJobRunButton({ routeId, jobDefId, jobRunNum, camera, jobSu
       allExports.find((e) =>
         e.jobRuns.length === (companionDepth ? 2 : 1) && e.jobRuns.some(
           (jr) => jr.jobDefId === jobDefId && jr.jobRunNum === jobRunNum && jr.camera === camera,
-        ) && (!companionDepth || e.jobRuns.some((jr) => jr.jobDefId === companionDepth.jobDefId && jr.jobRunNum === companionDepth.jobRunNum && jr.camera === companionDepth.camera)),
+        ) && (!companionDepth || e.jobRuns.some((jr) => jr.jobDefId === companionDepth.jobDefId && jr.jobRunNum === companionDepth.jobRunNum && jr.camera === companionDepth.camera))
+          // an export made with a different intersection filter is a different export
+          && sameIntersectionFilter(e.intersectionTypes, intersectionTypes),
       ) ?? null,
-    [allExports, jobDefId, jobRunNum, camera, companionDepth],
+    [allExports, jobDefId, jobRunNum, camera, companionDepth, intersectionTypes],
   );
 
   const createMutation = useMutation({
@@ -76,6 +87,7 @@ export function ExportJobRunButton({ routeId, jobDefId, jobRunNum, camera, jobSu
         routeId,
         cameraViews: [camera],
         jobRuns: [{ jobDefId, jobRunNum, camera }, ...(companionDepth ? [companionDepth] : [])],
+        intersectionTypes: intersectionTypes ?? null,
       }),
     onSuccess: (newExport) => {
       queryClient.setQueryData<DatasetExport[]>(queryKey, (old = []) => [...old, newExport]);
@@ -91,6 +103,7 @@ export function ExportJobRunButton({ routeId, jobDefId, jobRunNum, camera, jobSu
         routeId,
         cameraViews: [camera],
         jobRuns: [{ jobDefId, jobRunNum, camera }, ...(companionDepth ? [companionDepth] : [])],
+        intersectionTypes: intersectionTypes ?? null,
       });
     },
     onSuccess: (newExport) => {
@@ -146,7 +159,7 @@ export function ExportJobRunButton({ routeId, jobDefId, jobRunNum, camera, jobSu
         else if (isRetry) retryMutation.mutate();
       }}
       style={style}
-      title={state === "unavailable" ? "Job run must succeed before exporting" : undefined}
+      title={state === "unavailable" ? "Job run must succeed before exporting" : intersectionTypes?.length ? `Exports only frames labeled: ${intersectionTypes.join(", ")}` : undefined}
     >
       {state === "exporting" && (
         <span
