@@ -305,7 +305,7 @@ Where to find the labels:
 
 Settings (environment variables on `intersection_worker`): `INTERSECTION_RADIUS_M` (30),
 `INTERSECTION_APPROACH_M` (60), `INTERSECTION_SIGNAL_SEARCH_M` (40), `INTERSECTION_CAMERA_CHECK` (true),
-`INTERSECTION_CAMERA_SAMPLES` (6), `OVERPASS_URL`, `OVERPASS_FALLBACK_URLS`. The code is in `shared/intersections/`, the worker in
+`INTERSECTION_CAMERA_SAMPLES` (6), `INTERSECTION_GPS_MAX_GAP_FRAMES` (10: frames without their own GPS reading get a position interpolated from readings at most this many frames apart), `OVERPASS_URL`, `OVERPASS_FALLBACK_URLS`. The code is in `shared/intersections/`, the worker in
 `intersection_worker/`, and the database columns come from migration `e5b2d9c4a7f1`. Problems are
 covered in the [Error Guide](./docs/ERROR_GUIDE.md#intersection-labels).
 

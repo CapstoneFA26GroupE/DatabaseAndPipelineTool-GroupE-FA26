@@ -26,6 +26,7 @@ class FramePoint:
     segment_id: int
     frame_id: int
     position: tuple[float, float] | None  # (lat, lon), None when there was no gps fix
+    gps_interpolated: bool = False  # true when the position was filled in from neighbouring frames
 
     @property
     def key(self) -> FrameKey:
@@ -164,6 +165,8 @@ def classify_frames(
             labels[frame.key] = FrameLabel(NON_INTERSECTION, {"source": SOURCE_MAP, "confidence": CONFIDENCE_HIGH,
                                                               "reason": "no intersection within "
                                                               f"{config.intersection_radius_m:g} m"})
+            if frame.gps_interpolated:
+                labels[frame.key].details["gps"] = "interpolated"
             continue
 
         distance, intersection = match
@@ -186,6 +189,8 @@ def classify_frames(
                 "intersection_lon": round(intersection.lon, 6),
             },
         )
+        if frame.gps_interpolated:
+            labels[frame.key].details["gps"] = "interpolated"
     return labels
 
 

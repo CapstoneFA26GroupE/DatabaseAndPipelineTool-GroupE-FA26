@@ -13,7 +13,7 @@ from intersections.classifier import (
     decide_intersection,
     select_camera_samples,
 )
-from intersections.gps import extract_lat_lon, positions_by_frame_id
+from intersections.gps import fill_position_gaps, extract_lat_lon, positions_by_frame_id
 from intersections.labels import (
     NON_INTERSECTION,
     SIGNALIZED,
@@ -220,3 +220,16 @@ def test_map_source_identifies_itself_and_falls_back_when_refused(tmp_path, monk
     assert len(source.intersections_for_points([(LAT0, LON0)])) == 1
     assert [host for host, _ in seen] == ["main.example", "backup.example"]  # 406 is not retried on the same server
     assert all(agent.startswith("MiLa-DataPipeline") for _, agent in seen)
+
+
+def test_frames_between_gps_readings_get_an_interpolated_position():
+    # logs.json often has a reading only every 2-3 camera frames; the frames in between borrow one
+    positions = {10: (35.0, -97.0), 13: (35.003, -97.0), 40: (35.1, -97.0), 41: None}
+    frame_ids = [9, 10, 11, 12, 13, 14, 30, 40, 41, 60]
+    filled, interpolated = fill_position_gaps(positions, frame_ids, max_gap_frames=10)
+    assert filled[11] == pytest.approx((35.001, -97.0)) and filled[12] == pytest.approx((35.002, -97.0))
+    assert filled[9] == (35.0, -97.0) and filled[14] == (35.003, -97.0)  # edges copy the nearest reading
+    assert filled[30] is None  # 13 -> 40 is too big a gap to guess across
+    assert filled[41] == (35.1, -97.0) and filled[60] is None
+    assert interpolated == {9, 11, 12, 14, 41}
+    assert fill_position_gaps(positions, frame_ids, max_gap_frames=0)[0][11] is None

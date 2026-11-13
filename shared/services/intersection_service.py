@@ -19,7 +19,7 @@ from intersections.classifier import (
     count_labels,
     select_camera_samples,
 )
-from intersections.gps import positions_by_frame_id
+from intersections.gps import fill_position_gaps, positions_by_frame_id
 from intersections.labels import CLASSIFIER_VERSION, SIGNALIZED, ClassifierConfig
 from intersections.osm import OsmMapSource
 from repositories.intersection_repository import FrameRef, IntersectionRepository
@@ -199,12 +199,18 @@ class IntersectionLabelingService:
 
             # this block reads the gps position of every frame from each segment's logs.json
             frames: list[FramePoint] = []
+            gps_measured = 0
             for segment_id in segment_ids:
                 positions = await self._segment_positions(route_id, segment_id, work_dir)
-                for (seg, frame_id) in sorted(k for k in refs_by_key if k[0] == segment_id):
-                    frames.append(FramePoint(seg, frame_id, positions.get(frame_id)))
+                frame_ids = sorted(fid for (seg, fid) in refs_by_key if seg == segment_id)
+                measured = sum(1 for fid in frame_ids if positions.get(fid) is not None)
+                positions, interpolated = fill_position_gaps(positions, frame_ids, self.config.gps_max_gap_frames)
+                gps_measured += measured
+                for frame_id in frame_ids:
+                    frames.append(FramePoint(segment_id, frame_id, positions.get(frame_id), frame_id in interpolated))
             points = [f.position for f in frames if f.position is not None]
-            logger.info("Route %s: %d frames, %d with gps", route_id, len(frames), len(points))
+            logger.info("Route %s: %d frames, %d with gps (%d measured, %d filled in from neighbouring frames)",
+                        route_id, len(frames), len(points), gps_measured, len(points) - gps_measured)
 
             # this block gets the intersections near the route from openstreetmap
             intersections = await asyncio.to_thread(self.map_source.intersections_for_points, points) if points else []
@@ -244,6 +250,7 @@ class IntersectionLabelingService:
             "counts": counts,
             "frames_total": len(frames),
             "frames_with_gps": len(points),
+            "frames_gps_interpolated": len(points) - gps_measured,
             "intersections_passed": len(intersections),
             "signalized_intersections": len({
                 l.details.get("intersection_id") for l in labels.values() if l.label == SIGNALIZED

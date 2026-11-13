@@ -20,7 +20,7 @@ DISPLAY_NAMES = {
 }
 
 # bump this when the rules change so already labeled routes get labeled again
-CLASSIFIER_VERSION = 1
+CLASSIFIER_VERSION = 2
 
 # where the label came from and how sure we are
 SOURCE_MAP = "map"
@@ -51,6 +51,8 @@ def _env_bool(name: str, default: bool) -> bool:
 class ClassifierConfig:
     # a frame within this distance of an intersection center counts as "at the intersection"
     intersection_radius_m: float = 30.0
+    # frames without their own gps reading borrow one from neighbours at most this many frames apart (20 fps -> 0.5 s)
+    gps_max_gap_frames: int = 10
     # frames within this distance are used for the camera check (the approach to the intersection)
     approach_radius_m: float = 60.0
     # junction nodes closer than this are merged into one intersection (divided roads, wide junctions)
@@ -96,6 +98,7 @@ class ClassifierConfig:
                 _env_float("INTERSECTION_CAMERA_MIN_SIGNAL_FRAMES", defaults.camera_min_signal_frames)
             ),
             camera_min_light_height=_env_float("INTERSECTION_CAMERA_MIN_LIGHT_HEIGHT", defaults.camera_min_light_height),
+            gps_max_gap_frames=int(_env_float("INTERSECTION_GPS_MAX_GAP_FRAMES", defaults.gps_max_gap_frames)),
             overpass_url=os.environ.get("OVERPASS_URL", defaults.overpass_url),
             overpass_fallback_urls=tuple(
                 url.strip() for url in os.environ.get(

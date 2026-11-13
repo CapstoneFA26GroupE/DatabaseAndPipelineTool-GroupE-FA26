@@ -59,6 +59,7 @@ async def get_route_intersection_summary(
         segments=[{"segment_id": seg, "counts": counts} for seg, counts in sorted(per_segment.items())],
         frames_total=info.get("frames_total", 0),
         frames_with_gps=info.get("frames_with_gps", 0),
+        frames_gps_interpolated=info.get("frames_gps_interpolated", 0),
         intersections_passed=info.get("intersections_passed", 0),
         signalized_intersections=info.get("signalized_intersections", 0),
         camera=info.get("camera") or {},

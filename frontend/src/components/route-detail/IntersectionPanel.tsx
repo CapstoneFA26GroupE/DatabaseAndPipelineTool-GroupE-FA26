@@ -109,6 +109,11 @@ export function IntersectionPanel({ routeId, summary, exportFilter, onExportFilt
             <span>{summary?.intersectionsPassed ?? 0} intersections passed</span>
             <span>· {summary?.signalizedIntersections ?? 0} signalized</span>
             {gpsShare !== null && <span>· GPS on {gpsShare}% of frames</span>}
+            {summary && summary.framesGpsInterpolated > 0 && (
+              <span title="frames without their own gps reading got a position from the readings just before and after them">
+                ({summary.framesGpsInterpolated.toLocaleString()} filled in from neighbouring frames)
+              </span>
+            )}
             {summary?.camera.enabled && (
               <span>
                 · camera checked {summary.camera.checkedIntersections} intersection{summary.camera.checkedIntersections === 1 ? "" : "s"} ({summary.camera.sampledFrames} frames)

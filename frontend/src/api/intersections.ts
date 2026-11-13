@@ -21,6 +21,7 @@ interface IntersectionSummaryResponse {
   segments: { segment_id: number; counts: Partial<Record<IntersectionType, number>> }[];
   frames_total: number;
   frames_with_gps: number;
+  frames_gps_interpolated?: number;
   intersections_passed: number;
   signalized_intersections: number;
   camera: { enabled: boolean; sampled_frames: number; checked_intersections: number; error: string | null };
@@ -37,6 +38,7 @@ export interface IntersectionSummary {
   segmentCounts: Record<number, Partial<Record<IntersectionType, number>>>;
   framesTotal: number;
   framesWithGps: number;
+  framesGpsInterpolated: number;
   intersectionsPassed: number;
   signalizedIntersections: number;
   camera: { enabled: boolean; sampledFrames: number; checkedIntersections: number; error: string | null };
@@ -71,6 +73,7 @@ function mapSummary(r: IntersectionSummaryResponse): IntersectionSummary {
     segmentCounts: Object.fromEntries(r.segments.map((s) => [s.segment_id, s.counts])),
     framesTotal: r.frames_total,
     framesWithGps: r.frames_with_gps,
+    framesGpsInterpolated: r.frames_gps_interpolated ?? 0,
     intersectionsPassed: r.intersections_passed,
     signalizedIntersections: r.signalized_intersections,
     camera: {

@@ -30,6 +30,7 @@ class IntersectionSummaryResponse(BaseModel):
     segments: list[IntersectionSegmentCounts] = []
     frames_total: int = 0
     frames_with_gps: int = 0
+    frames_gps_interpolated: int = 0
     intersections_passed: int = 0
     signalized_intersections: int = 0
     camera: IntersectionCameraSummary = IntersectionCameraSummary()
