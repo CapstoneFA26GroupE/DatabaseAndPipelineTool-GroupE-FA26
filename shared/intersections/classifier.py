@@ -4,6 +4,7 @@ from typing import Any, Iterable
 from intersections.geo import GridIndex, LocalProjection
 from intersections.labels import (
     CONFIDENCE_HIGH,
+    DISPLAY_NAMES,
     CONFIDENCE_LOW,
     CONFIDENCE_MEDIUM,
     NON_INTERSECTION,
@@ -80,19 +81,55 @@ class IntersectionMatcher:
         return found[0] if found else None
 
 
+@dataclass
+class IntersectionPass:
+    # one time the car drives past an intersection: the frames near it, in driving order, with their distances
+    intersection: Intersection
+    frames: list[tuple[FramePoint, float]] = field(default_factory=list)
+
+    @property
+    def closest_index(self) -> int:
+        return min(range(len(self.frames)), key=lambda i: self.frames[i][1])
+
+    def approach(self) -> list[tuple[FramePoint, float]]:
+        # frames up to and including the closest point (the car is driving towards it)
+        return self.frames[: self.closest_index + 1]
+
+    def departure(self) -> list[tuple[FramePoint, float]]:
+        # frames after the closest point (the car is driving away)
+        return self.frames[self.closest_index + 1:]
+
+
+def find_passes(frames: Iterable[FramePoint], matcher: IntersectionMatcher, radius_m: float) -> list[IntersectionPass]:
+    # this walks the route in driving order and splits it into passes: a run of frames whose nearest
+    # intersection (within radius_m) is the same one. frames without gps don't break a pass
+    passes: list[IntersectionPass] = []
+    current: IntersectionPass | None = None
+    for frame in sorted(frames, key=lambda f: f.key):
+        if frame.position is None:
+            continue
+        match = matcher.nearest(frame.position, radius_m)
+        if match is None:
+            current = None
+            continue
+        distance, intersection = match
+        if current is None or current.intersection.id != intersection.id:
+            current = IntersectionPass(intersection)
+            passes.append(current)
+        current.frames.append((frame, distance))
+    return passes
+
+
 def select_camera_samples(
     frames: Iterable[FramePoint],
     matcher: IntersectionMatcher,
     config: ClassifierConfig,
 ) -> dict[str, list[FrameKey]]:
-    # this picks a few evenly spaced frames from each intersection's approach to run the camera check on
+    # this picks a few evenly spaced frames from each intersection's approach to run the camera check on.
+    # only frames while driving towards it count: once past it, its lights and signs are behind the car
     approach: dict[str, list[FrameKey]] = {}
-    for frame in frames:
-        if frame.position is None:
-            continue
-        match = matcher.nearest(frame.position, config.approach_radius_m)
-        if match is not None:
-            approach.setdefault(match[1].id, []).append(frame.key)
+    for found in find_passes(frames, matcher, config.approach_radius_m):
+        approach.setdefault(found.intersection.id, []).extend(frame.key for frame, _ in found.approach())
 
     samples: dict[str, list[FrameKey]] = {}
     limit = max(config.camera_samples_per_intersection, 0)
@@ -146,12 +183,19 @@ def classify_frames(
     evidence_by_intersection: dict[str, CameraEvidence],
     config: ClassifierConfig,
 ) -> dict[FrameKey, FrameLabel]:
-    # this labels every frame: near an intersection -> that intersection's label, otherwise non-intersection,
-    # and unknown when the frame has no gps position
+    # this labels every frame: near an intersection -> that intersection's label (while approaching or
+    # crossing it), otherwise non-intersection, and unknown when the frame has no gps position
     matcher = IntersectionMatcher(intersections, config.intersection_radius_m)
     decisions = {
         i.id: decide_intersection(i, evidence_by_intersection.get(i.id), config) for i in intersections
     }
+
+    # this block finds the frames where the car is already driving away from an intersection it passed
+    leaving: dict[FrameKey, tuple[Intersection, float]] = {}
+    for found in find_passes(frames, matcher, config.intersection_radius_m):
+        for frame, distance in found.departure():
+            if distance > config.departure_keep_m:
+                leaving[frame.key] = (found.intersection, distance)
 
     labels: dict[FrameKey, FrameLabel] = {}
     for frame in frames:
@@ -171,6 +215,18 @@ def classify_frames(
 
         distance, intersection = match
         decision = decisions[intersection.id]
+        if frame.key in leaving:
+            # past the intersection and driving away: the camera no longer sees it, so not an intersection frame
+            labels[frame.key] = FrameLabel(NON_INTERSECTION, {
+                "source": SOURCE_MAP, "confidence": CONFIDENCE_HIGH,
+                "reason": f"leaving a {DISPLAY_NAMES[decision.label].lower()} it already drove through "
+                          f"({distance:.0f} m behind)",
+                "departed_intersection_id": intersection.id,
+                "distance_m": round(distance, 1),
+            })
+            if frame.gps_interpolated:
+                labels[frame.key].details["gps"] = "interpolated"
+            continue
         evidence = evidence_by_intersection.get(intersection.id)
         labels[frame.key] = FrameLabel(
             decision.label,

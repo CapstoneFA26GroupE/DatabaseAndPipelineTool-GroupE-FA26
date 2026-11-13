@@ -287,7 +287,9 @@ How a frame is labeled:
 2. Road intersections near the route come from OpenStreetMap (Overpass API): a node where 3 or more
    drivable road branches meet; freeway ramp merges, driveways and parking lots are ignored; junction
    nodes within 25 m are merged into one intersection.
-3. A frame within 30 m of an intersection gets that intersection's label; others are non-intersection.
+3. A frame within 30 m of an intersection gets that intersection's label while the car is approaching or
+   crossing it. Once the car has passed its closest point and is more than 12 m away again, the signal or
+   sign is behind it, so those frames are non-intersection. All other frames are non-intersection.
 4. An intersection is **signalized** if OpenStreetMap has a traffic signal within 40 m. A camera check
    then runs the RT-DETR detection model on ~6 frames of the approach: lights seen confirm it, and lights
    seen at an intersection with no mapped signal make it signalized (the map is missing it).
@@ -305,7 +307,7 @@ Where to find the labels:
 
 Settings (environment variables on `intersection_worker`): `INTERSECTION_RADIUS_M` (30),
 `INTERSECTION_APPROACH_M` (60), `INTERSECTION_SIGNAL_SEARCH_M` (40), `INTERSECTION_CAMERA_CHECK` (true),
-`INTERSECTION_CAMERA_SAMPLES` (6), `INTERSECTION_GPS_MAX_GAP_FRAMES` (10: frames without their own GPS reading get a position interpolated from readings at most this many frames apart), `OVERPASS_URL`, `OVERPASS_FALLBACK_URLS`. The code is in `shared/intersections/`, the worker in
+`INTERSECTION_CAMERA_SAMPLES` (6), `INTERSECTION_DEPARTURE_KEEP_M` (12), `INTERSECTION_GPS_MAX_GAP_FRAMES` (10: frames without their own GPS reading get a position interpolated from readings at most this many frames apart), `OVERPASS_URL`, `OVERPASS_FALLBACK_URLS`. The code is in `shared/intersections/`, the worker in
 `intersection_worker/`, and the database columns come from migration `e5b2d9c4a7f1`. Problems are
 covered in the [Error Guide](./docs/ERROR_GUIDE.md#intersection-labels).
 

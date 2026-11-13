@@ -152,10 +152,23 @@ def test_classify_frames_by_distance():
     assert by_frame[0] == NON_INTERSECTION  # 100 m before
     assert by_frame[7] == SIGNALIZED  # 30 m before
     assert by_frame[10] == SIGNALIZED  # in the middle
+    assert by_frame[11] == SIGNALIZED  # 10 m past: still crossing the junction
+    assert by_frame[12] == NON_INTERSECTION  # 20 m past and driving away: the signal is behind the car
+    assert "leaving" in labels[(0, 12)].details["reason"]
     assert by_frame[14] == NON_INTERSECTION  # 40 m past
     assert by_frame[99] == UNKNOWN
     assert labels[(0, 10)].details["distance_m"] < 1
-    assert count_labels(labels.values()) == {NON_INTERSECTION: 14, SIGNALIZED: 7, UNKNOWN: 1}
+    assert count_labels(labels.values()) == {NON_INTERSECTION: 16, SIGNALIZED: 5, UNKNOWN: 1}
+
+
+def test_driving_back_through_the_same_intersection_is_a_new_pass():
+    # out and back: both approaches are labeled, both departures are not
+    out = _drive_east()
+    back = [FramePoint(0, 100 + i, f.position) for i, f in enumerate(reversed(out))]
+    labels = classify_frames(out + back, [_intersection(True)], {}, CONFIG)
+    by_frame = {key[1]: label.label for key, label in labels.items()}
+    assert by_frame[8] == SIGNALIZED and by_frame[13] == NON_INTERSECTION  # going out
+    assert by_frame[108] == SIGNALIZED and by_frame[113] == NON_INTERSECTION  # coming back
 
 
 def test_classify_with_no_intersections_is_all_non_intersection():
@@ -169,7 +182,7 @@ def test_camera_samples_are_spread_over_the_approach():
     samples = select_camera_samples(_drive_east(), matcher, config)
     picked = samples["osm-1"]
     assert len(picked) == 4
-    assert picked[0] == (0, 4) and picked[-1] == (0, 16)  # first and last frame within 60 m
+    assert picked[0] == (0, 4) and picked[-1] == (0, 10)  # from 60 m out to the centre, none after passing it
 
 
 # ─── map download + cache ────────────────────────────────────────────────────
