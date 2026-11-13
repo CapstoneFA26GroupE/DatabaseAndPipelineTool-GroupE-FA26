@@ -17,7 +17,7 @@ from intersections.labels import SIGNALIZED, NON_INTERSECTION, UNKNOWN, UNSIGNAL
 from intersections.osm import Intersection
 from repositories.intersection_repository import IntersectionRepository
 from repositories.route_repository import RouteRepository
-from services.intersection_service import IntersectionLabelingService, needs_labeling
+from services.intersection_service import IntersectionLabelingService, needs_labeling, next_route_to_label
 from services.route_service import RouteService
 
 # run every async test with pytest-asyncio (the test container uses its default "strict" mode)
@@ -150,3 +150,23 @@ async def test_label_route_without_camera_model_still_labels(session_factory):
     assert summary["camera"]["sampled_frames"] == 0
     assert "model download failed" in summary["camera"]["error"]
     assert summary["counts"][SIGNALIZED] == 7  # map data alone still labels it
+
+
+async def test_next_route_to_label_survives_rollback_and_sees_new_uploads(session_factory):
+    # the worker crashed here once: it read route ids after a rollback had made the rows stale
+    async with session_factory() as session:
+        session.add(Route(route_id="abc|0001-still-uploading", status=RouteStatus.UPLOADING))
+        await session.commit()
+
+    async with session_factory() as worker_session:
+        route_service = RouteService(RouteRepository(worker_session))
+        assert await next_route_to_label(route_service, worker_session) == ROUTE
+
+        # another worker finishes the upload and this one labels the first route
+        async with session_factory() as other:
+            await RouteService(RouteRepository(other)).set_intersection_status(ROUTE, {"status": "done", "version": 99})
+            (await other.get(Route, "abc|0001-still-uploading")).status = RouteStatus.UPLOADED
+            await other.commit()
+
+        # the same long-lived session must notice both changes on its next poll
+        assert await next_route_to_label(route_service, worker_session) == "abc|0001-still-uploading"

@@ -57,6 +57,16 @@ def needs_labeling(route: Route) -> bool:
     return info.get("status") == STATUS_DONE and int(info.get("version", 0)) < CLASSIFIER_VERSION
 
 
+
+async def next_route_to_label(route_service: RouteService, session: AsyncSession) -> str | None:
+    # this returns the oldest uploaded route that still needs labels, or none
+    # the ids are read before the rollback: a rollback marks loaded rows as stale, and reading a stale
+    # row on an async session crashes the worker (sqlalchemy MissingGreenlet)
+    route_ids = [r.route_id for r in await route_service.list_routes() if needs_labeling(r)]
+    # end the read transaction so the next poll sees fresh rows from the other workers
+    await session.rollback()
+    return route_ids[-1] if route_ids else None  # list_routes is newest first, so this takes the oldest
+
 class IntersectionLabelingService:
     # this labels every frame of a route as signalized / unsignalized / non-intersection (or unknown)
 

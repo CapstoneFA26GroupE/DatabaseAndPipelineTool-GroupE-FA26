@@ -20,7 +20,7 @@ from services.intersection_service import (
     STATUS_PENDING,
     STATUS_RUNNING,
     IntersectionLabelingService,
-    needs_labeling,
+    next_route_to_label,
     now_iso,
 )
 from services.minio_service import MinioService
@@ -105,13 +105,11 @@ async def main() -> None:
 
             while not stop_event.is_set():
                 # this block finds the next uploaded route that still needs labels
-                routes = [r for r in await route_service.list_routes() if needs_labeling(r)]
-                await session.rollback()
-                if not routes:
+                route_id = await next_route_to_label(route_service, session)
+                if route_id is None:
                     await asyncio.sleep(POLL_INTERVAL_SECONDS)
                     continue
 
-                route_id = routes[-1].route_id  # list_routes is newest first, so this takes the oldest
                 logger.info("Labeling intersections for route %s", route_id)
                 try:
                     summary = await service.label_route(route_id)
