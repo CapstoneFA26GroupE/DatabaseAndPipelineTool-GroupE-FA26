@@ -68,6 +68,11 @@ class ClassifierConfig:
     camera_min_light_height: float = 0.02
     # map data settings
     overpass_url: str = "https://overpass-api.de/api/interpreter"
+    # backup overpass servers, tried in order when the main one refuses or is overloaded
+    overpass_fallback_urls: tuple[str, ...] = (
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+    )
     map_tile_deg: float = 0.02
     map_cache_dir: str = "/app/osm_cache"
     map_cache_days: float = 30.0
@@ -92,6 +97,11 @@ class ClassifierConfig:
             ),
             camera_min_light_height=_env_float("INTERSECTION_CAMERA_MIN_LIGHT_HEIGHT", defaults.camera_min_light_height),
             overpass_url=os.environ.get("OVERPASS_URL", defaults.overpass_url),
+            overpass_fallback_urls=tuple(
+                url.strip() for url in os.environ.get(
+                    "OVERPASS_FALLBACK_URLS", ",".join(defaults.overpass_fallback_urls)
+                ).split(",") if url.strip()
+            ),
             map_tile_deg=_env_float("INTERSECTION_MAP_TILE_DEG", defaults.map_tile_deg),
             map_cache_dir=os.environ.get("OSM_CACHE_DIR", defaults.map_cache_dir),
             map_cache_days=_env_float("OSM_CACHE_DAYS", defaults.map_cache_days),

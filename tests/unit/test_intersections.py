@@ -198,3 +198,25 @@ def test_map_source_reports_a_clear_error(tmp_path, monkeypatch):
     source = OsmMapSource(ClassifierConfig(map_cache_dir=str(tmp_path)), client=client)
     with pytest.raises(MapDataUnavailableError, match="HTTP 429"):
         source.intersections_for_points([(LAT0, LON0)])
+
+
+def test_map_source_identifies_itself_and_falls_back_when_refused(tmp_path, monkeypatch):
+    # the main overpass server answers 406 to generic clients; we must send a real user agent and use a backup
+    monkeypatch.setattr("intersections.osm.time.sleep", lambda _s: None)
+    elements = [node(1, 0, -100), node(2), node(3, 0, 100), node(4, -100, 0), way(10, [1, 2, 3]), way(11, [4, 2])]
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.host, request.headers.get("user-agent", "")))
+        if request.url.host == "main.example":
+            return httpx.Response(406)
+        return httpx.Response(200, json={"elements": elements})
+
+    config = ClassifierConfig(
+        map_cache_dir=str(tmp_path), overpass_url="https://main.example/api/interpreter",
+        overpass_fallback_urls=("https://backup.example/api/interpreter",),
+    )
+    source = OsmMapSource(config, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert len(source.intersections_for_points([(LAT0, LON0)])) == 1
+    assert [host for host, _ in seen] == ["main.example", "backup.example"]  # 406 is not retried on the same server
+    assert all(agent.startswith("MiLa-DataPipeline") for _, agent in seen)

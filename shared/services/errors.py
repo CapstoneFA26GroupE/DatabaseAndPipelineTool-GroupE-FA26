@@ -554,9 +554,10 @@ class MapDataUnavailableError(PipelineError):
     code = "MAP_DATA_UNAVAILABLE"
     status_code = HTTP_503_SERVICE_UNAVAILABLE
     hint = (
-        "Road data from OpenStreetMap (Overpass API) could not be downloaded. Check the internet "
-        "connection, wait a few minutes (the public server limits requests), then use Re-run on the "
-        "route's Intersections panel. OVERPASS_URL can point to another Overpass server."
+        "Road data from OpenStreetMap (Overpass API) could not be downloaded from the main or backup "
+        "servers. Check the internet connection, wait a few minutes (the public servers limit requests), "
+        "then use Re-run on the route's Intersections panel. OVERPASS_URL and OVERPASS_FALLBACK_URLS "
+        "choose which Overpass servers are used."
     )
 
     def __init__(self, message: str) -> None:

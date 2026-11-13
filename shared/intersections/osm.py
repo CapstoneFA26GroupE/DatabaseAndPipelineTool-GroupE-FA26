@@ -152,6 +152,15 @@ def tiles_for_points(points: Iterable[tuple[float, float]], tile_deg: float) -> 
     return {(int(math.floor(lat / tile_deg)), int(math.floor(lon / tile_deg))) for lat, lon in points}
 
 
+# the public overpass server answers HTTP 406 to scripts with a generic user agent (since april 2026),
+# so every request says who we are
+OVERPASS_HEADERS = {
+    "User-Agent": "MiLa-DataPipeline/1.0 (University of Oklahoma CS4273 capstone; intersection labeling)",
+    "Referer": "https://github.com/OUMiLaGroup/DatabaseAndPipleineTool",
+    "Accept": "application/json",
+}
+
+
 class OsmMapSource:
     # this downloads road data for the tiles a route covers from an overpass server, with an on-disk cache
 
@@ -188,25 +197,35 @@ class OsmMapSource:
         query = build_overpass_query(south, west, north, east)
 
         client = self._client or httpx.Client(timeout=httpx.Timeout(120.0))
-        last_error = ""
+        servers = [self.config.overpass_url] + [
+            url for url in self.config.overpass_fallback_urls if url != self.config.overpass_url
+        ]
+        errors: list[str] = []
         try:
-            for attempt in range(4):
-                try:
-                    response = client.post(self.config.overpass_url, data={"data": query})
-                    if response.status_code == 200:
-                        return response.json().get("elements", [])
-                    last_error = f"HTTP {response.status_code}"
-                    # this backs off when the public server says it is busy (429) or overloaded (5xx)
-                    if response.status_code not in (429, 502, 503, 504):
-                        break
-                except (httpx.HTTPError, ValueError) as e:
-                    last_error = f"{type(e).__name__}: {e}"
-                time.sleep(min(30.0, 5.0 * (attempt + 1)))
+            # this tries the main server first, then each backup server
+            for url in servers:
+                last_error = ""
+                for attempt in range(3):
+                    try:
+                        response = client.post(url, data={"data": query}, headers=OVERPASS_HEADERS)
+                        if response.status_code == 200:
+                            return response.json().get("elements", [])
+                        last_error = f"HTTP {response.status_code}"
+                        # this backs off when a server says it is busy (429) or overloaded (5xx);
+                        # anything else (like 406) means this server won't answer us, so try the next one
+                        if response.status_code not in (429, 502, 503, 504):
+                            break
+                    except (httpx.HTTPError, ValueError) as e:
+                        last_error = f"{type(e).__name__}: {e}"
+                    if attempt < 2:
+                        time.sleep(min(30.0, 5.0 * (attempt + 1)))
+                logger.warning("Overpass server %s failed for tile %s: %s", url, tile, last_error)
+                errors.append(f"{url}: {last_error}")
         finally:
             if self._client is None:
                 client.close()
         raise MapDataUnavailableError(
-            f"Could not download OpenStreetMap road data for tile {tile} from {self.config.overpass_url}: {last_error}"
+            f"Could not download OpenStreetMap road data for tile {tile} from any Overpass server ({'; '.join(errors)})"
         )
 
     def elements_for_points(self, points: list[tuple[float, float]]) -> list[dict[str, Any]]:

@@ -248,11 +248,13 @@ per intersection are also checked for traffic lights with the detection model, w
 and catches signals the map is missing.
 
 #### MAP_DATA_UNAVAILABLE
-Road data from OpenStreetMap (the public Overpass API) could not be downloaded, so the route could not
-be labeled.
+Road data from OpenStreetMap (the public Overpass API) could not be downloaded from the main server or
+any backup server, so the route could not be labeled. The error lists what each server answered.
 **Fix:** check the internet connection, wait a few minutes (the public server limits how often it can
-be called), then click **Re-run** on the route's *Intersections* panel. To use another Overpass server,
-set `OVERPASS_URL` for `intersection_worker` in `docker-compose.yaml`. Map data is cached in the
+be called), then click **Re-run** on the route's *Intersections* panel. The worker tries `OVERPASS_URL`
+first, then each server in `OVERPASS_FALLBACK_URLS` (comma-separated); set either for `intersection_worker`
+in `docker-compose.yaml` to use other servers. `HTTP 406` means a server refused the request (the main
+server rejects clients it can't identify), so the worker moves straight on to the next one. Map data is cached in the
 `mila_osm_cache` volume, so each area is only downloaded once.
 
 #### INTERSECTIONS_NOT_READY
