@@ -152,13 +152,21 @@ def test_classify_frames_by_distance():
     assert by_frame[0] == NON_INTERSECTION  # 100 m before
     assert by_frame[7] == SIGNALIZED  # 30 m before
     assert by_frame[10] == SIGNALIZED  # in the middle
-    assert by_frame[11] == SIGNALIZED  # 10 m past: still crossing the junction
-    assert by_frame[12] == NON_INTERSECTION  # 20 m past and driving away: the signal is behind the car
-    assert "leaving" in labels[(0, 12)].details["reason"]
+    assert by_frame[11] == NON_INTERSECTION  # 10 m past the centre and driving away: the signal is behind the car
+    assert "leaving" in labels[(0, 11)].details["reason"]
     assert by_frame[14] == NON_INTERSECTION  # 40 m past
     assert by_frame[99] == UNKNOWN
     assert labels[(0, 10)].details["distance_m"] < 1
-    assert count_labels(labels.values()) == {NON_INTERSECTION: 16, SIGNALIZED: 5, UNKNOWN: 1}
+    assert count_labels(labels.values()) == {NON_INTERSECTION: 17, SIGNALIZED: 4, UNKNOWN: 1}
+
+
+def test_gps_jitter_at_the_closest_point_does_not_count_as_leaving():
+    # stopped at a red light: the position wobbles by a metre around the closest point
+    lon = lambda m: LON0 + m * DEG_PER_M / 0.8181
+    frames = [FramePoint(0, i, (LAT0, lon(m))) for i, m in enumerate([-20, -10, -5, -4, -5, -4.5, -5, 10])]
+    labels = classify_frames(frames, [_intersection(True)], {}, CONFIG)
+    assert [labels[(0, i)].label for i in range(8)] == [SIGNALIZED] * 7 + [NON_INTERSECTION]
+
 
 
 def test_driving_back_through_the_same_intersection_is_a_new_pass():

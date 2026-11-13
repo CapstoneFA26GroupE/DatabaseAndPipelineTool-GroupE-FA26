@@ -193,8 +193,9 @@ def classify_frames(
     # this block finds the frames where the car is already driving away from an intersection it passed
     leaving: dict[FrameKey, tuple[Intersection, float]] = {}
     for found in find_passes(frames, matcher, config.intersection_radius_m):
+        closest = found.frames[found.closest_index][1]
         for frame, distance in found.departure():
-            if distance > config.departure_keep_m:
+            if distance > closest + config.departure_margin_m:
                 leaving[frame.key] = (found.intersection, distance)
 
     labels: dict[FrameKey, FrameLabel] = {}

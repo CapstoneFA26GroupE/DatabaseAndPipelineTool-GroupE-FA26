@@ -117,16 +117,16 @@ async def test_label_route_end_to_end(session_factory):
     assert summary["frames_total"] == 22 and summary["frames_with_gps"] == 21
     assert summary["intersections_passed"] == 2  # the far one is ignored
     assert summary["camera"]["sampled_frames"] == 6
-    # 30 m before to 10 m after each intersection; frames driving away from one are non-intersection
-    assert summary["counts"] == {SIGNALIZED: 5, UNSIGNALIZED: 5, NON_INTERSECTION: 11, UNKNOWN: 1}
+    # 30 m before each intersection up to its centre; frames driving away from one are non-intersection
+    assert summary["counts"] == {SIGNALIZED: 4, UNSIGNALIZED: 4, NON_INTERSECTION: 13, UNKNOWN: 1}
 
     async with session_factory() as session:
         repo = IntersectionRepository(session)
         assert await repo.count_by_segment(ROUTE) == {0: summary["counts"]}
         frames = await repo.list_labeled_frames(ROUTE, types=[SIGNALIZED])
-        assert [f["frame_id"] for f in frames] == [2, 3, 4, 5, 6]
+        assert [f["frame_id"] for f in frames] == [2, 3, 4, 5]
         assert frames[0]["intersection_details"]["source"] == "map+camera"
-        assert await repo.frame_ids_with_types(ROUTE, [UNSIGNALIZED]) == {0: {12, 13, 14, 15, 16}}
+        assert await repo.frame_ids_with_types(ROUTE, [UNSIGNALIZED]) == {0: {12, 13, 14, 15}}
         # both cameras got the same label
         regular = await session.get(Frame, 1)
         wide = await session.get(Frame, 2)
@@ -150,7 +150,7 @@ async def test_label_route_without_camera_model_still_labels(session_factory):
     assert summary["status"] == "done"
     assert summary["camera"]["sampled_frames"] == 0
     assert "model download failed" in summary["camera"]["error"]
-    assert summary["counts"][SIGNALIZED] == 5  # map data alone still labels it
+    assert summary["counts"][SIGNALIZED] == 4  # map data alone still labels it
 
 
 async def test_next_route_to_label_survives_rollback_and_sees_new_uploads(session_factory):

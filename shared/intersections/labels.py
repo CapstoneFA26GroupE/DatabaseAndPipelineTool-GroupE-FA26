@@ -20,7 +20,7 @@ DISPLAY_NAMES = {
 }
 
 # bump this when the rules change so already labeled routes get labeled again
-CLASSIFIER_VERSION = 3
+CLASSIFIER_VERSION = 4
 
 # where the label came from and how sure we are
 SOURCE_MAP = "map"
@@ -51,9 +51,10 @@ def _env_bool(name: str, default: bool) -> bool:
 class ClassifierConfig:
     # a frame within this distance of an intersection center counts as "at the intersection"
     intersection_radius_m: float = 30.0
-    # after the car's closest point to an intersection it is leaving; frames further than this from the
-    # centre while leaving are non-intersection (the signal/sign is behind the car by then)
-    departure_keep_m: float = 12.0
+    # after the car's closest point to an intersection it is leaving: once it is this much further away than
+    # that closest point, frames are non-intersection (signals hang on the far side, so they are overhead or
+    # behind the car by then). the margin only absorbs gps jitter around the closest point
+    departure_margin_m: float = 2.0
     # frames without their own gps reading borrow one from neighbours at most this many frames apart (20 fps -> 0.5 s)
     gps_max_gap_frames: int = 10
     # frames within this distance are used for the camera check (the approach to the intersection)
@@ -101,7 +102,7 @@ class ClassifierConfig:
                 _env_float("INTERSECTION_CAMERA_MIN_SIGNAL_FRAMES", defaults.camera_min_signal_frames)
             ),
             camera_min_light_height=_env_float("INTERSECTION_CAMERA_MIN_LIGHT_HEIGHT", defaults.camera_min_light_height),
-            departure_keep_m=_env_float("INTERSECTION_DEPARTURE_KEEP_M", defaults.departure_keep_m),
+            departure_margin_m=_env_float("INTERSECTION_DEPARTURE_MARGIN_M", defaults.departure_margin_m),
             gps_max_gap_frames=int(_env_float("INTERSECTION_GPS_MAX_GAP_FRAMES", defaults.gps_max_gap_frames)),
             overpass_url=os.environ.get("OVERPASS_URL", defaults.overpass_url),
             overpass_fallback_urls=tuple(
